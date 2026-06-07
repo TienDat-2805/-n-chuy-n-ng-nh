@@ -3,7 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Models\ScheduleConflict;
-use App\Models\SectionMeeting;
+use App\Services\ScheduleConflictService;
 use Illuminate\Http\Request;
 
 class ConflictController extends Controller
@@ -27,111 +27,95 @@ class ConflictController extends Controller
         ]);
     }
 
-    public function check()
+    public function check(ScheduleConflictService $service)
     {
-        ScheduleConflict::query()->delete();
+        $created = $service->detect();
+        $message = "Đã kiểm tra xung đột. Phát hiện {$created} lỗi.";
 
-        $meetings = SectionMeeting::query()
-            ->with([
-                'section.subject',
-                'section.lecturers',
-                'room',
-            ])
-            ->whereNotNull('day_of_week')
-            ->whereNotNull('start_period')
-            ->whereNotNull('end_period')
-            ->get();
+        if (request()->expectsJson()) {
+            return response()->json([
+                'ok' => true,
+                'message' => $message,
+            ]);
+        }
 
-        $created = 0;
+        return back()->with('success', $message);
+    }
 
-        for ($i = 0; $i < $meetings->count(); $i++) {
-            for ($j = $i + 1; $j < $meetings->count(); $j++) {
-                $a = $meetings[$i];
-                $b = $meetings[$j];
+    public function apply(Request $request, ScheduleConflictService $service)
+    {
+        $data = $request->validate([
+            'conflict_id' => ['required', 'integer'],
+            'day_of_week' => ['required', 'integer', 'between:2,7'],
+            'start_period' => ['required', 'integer', 'between:1,12'],
+            'end_period' => ['required', 'integer', 'between:1,12'],
+            'room_id' => ['nullable', 'integer'],
+        ]);
 
-                if (!$this->isSameTime($a, $b)) {
-                    continue;
-                }
+        $conflict = ScheduleConflict::query()->find($data['conflict_id']);
+        if (! $conflict) {
+            $message = 'Xung đột này không còn tồn tại. Vui lòng bấm kiểm tra xung đột lại.';
 
-                if ($this->isSameSection($a, $b)) {
-                    $created += $this->createConflict(
-                        'section_conflict',
-                        $a,
-                        $b,
-                        'Một lớp học phần có nhiều lịch bị trùng thời gian.'
-                    );
-                }
-
-                if ($this->isSameRoom($a, $b)) {
-                    $created += $this->createConflict(
-                        'room_conflict',
-                        $a,
-                        $b,
-                        'Một phòng học/địa điểm được sử dụng cho nhiều lớp cùng thời điểm.'
-                    );
-                }
-
-                if ($this->hasSameLecturer($a, $b)) {
-                    $created += $this->createConflict(
-                        'lecturer_conflict',
-                        $a,
-                        $b,
-                        'Một giảng viên bị phân công dạy nhiều lớp cùng thời điểm.'
-                    );
-                }
+            if ($request->expectsJson()) {
+                return response()->json([
+                    'ok' => false,
+                    'message' => $message,
+                ], 409);
             }
+
+            return redirect()
+                ->route('imports.index')
+                ->with('error', $message);
+        }
+
+        if (! $service->applySuggestion($conflict, $data)) {
+            $message = 'Phương án này không còn hợp lệ. Vui lòng kiểm tra lại xung đột.';
+
+            if ($request->expectsJson()) {
+                return response()->json([
+                    'ok' => false,
+                    'message' => $message,
+                ], 422);
+            }
+
+            return redirect()
+                ->route('imports.index')
+                ->with('error', $message);
+        }
+
+        $message = 'Đã áp dụng phương án sửa lịch và kiểm tra lại xung đột.';
+
+        if ($request->expectsJson()) {
+            return response()->json([
+                'ok' => true,
+                'message' => $message,
+            ]);
         }
 
         return redirect()
-            ->route('conflicts.index')
-            ->with('success', "Đã kiểm tra xung đột. Phát hiện {$created} lỗi.");
+            ->route('imports.index')
+            ->with('success', $message);
     }
 
-    private function isSameTime(SectionMeeting $a, SectionMeeting $b): bool
+    public function autoSchedule(Request $request, ScheduleConflictService $service)
     {
-        if ($a->day_of_week !== $b->day_of_week) {
-            return false;
+        $result = $service->autoSchedule(80);
+
+        $message = "Đã tự động tối ưu {$result['applied']} lượt. Còn {$result['remaining']} xung đột.";
+        if ($result['stuck']) {
+            $message .= ' Một số xung đột chưa có phương án phù hợp, cần xử lý thủ công.';
         }
 
-        return $a->start_period <= $b->end_period
-            && $b->start_period <= $a->end_period;
-    }
-
-    private function isSameSection(SectionMeeting $a, SectionMeeting $b): bool
-    {
-        return $a->section_id === $b->section_id;
-    }
-
-    private function isSameRoom(SectionMeeting $a, SectionMeeting $b): bool
-    {
-        if (!$a->room_id || !$b->room_id) {
-            return false;
+        if ($request->expectsJson()) {
+            return response()->json([
+                'ok' => $result['remaining'] === 0,
+                'message' => $message,
+                'result' => $result,
+            ]);
         }
 
-        return $a->room_id === $b->room_id;
-    }
-
-    private function hasSameLecturer(SectionMeeting $a, SectionMeeting $b): bool
-    {
-        $lecturerIdsA = $a->section->lecturers->pluck('id')->toArray();
-        $lecturerIdsB = $b->section->lecturers->pluck('id')->toArray();
-
-        return count(array_intersect($lecturerIdsA, $lecturerIdsB)) > 0;
-    }
-
-    private function createConflict(
-        string $type,
-        SectionMeeting $a,
-        SectionMeeting $b,
-        string $message
-    ): int {
-        ScheduleConflict::create([
-            'type' => $type,
-            'section_meeting_id' => $a->id,
-            'conflict_section_meeting_id' => $b->id,
-            'message' => $message,
-        ]);
-
-        return 1;
+        return redirect()
+            ->route('imports.index')
+            ->with($result['remaining'] === 0 ? 'success' : 'error', $message);
     }
 }

@@ -14,6 +14,7 @@ use App\Models\SectionMeeting;
 use App\Models\Subject;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use App\Services\ScheduleConflictService;
 use PhpOffice\PhpSpreadsheet\IOFactory;
 use PhpOffice\PhpSpreadsheet\Spreadsheet;
 use Throwable;
@@ -22,13 +23,121 @@ class ImportController extends Controller
 {
     private const MAX_PERIOD_PER_DAY = 12;
 
-    public function index()
+    public function index(Request $request)
     {
-        return view('imports.index');
+        $studyMode = $request->query('study_mode', 'all');
+        $totalConflicts = ScheduleConflict::query()->count();
+        $conflictMeetingIds = ScheduleConflict::query()
+            ->limit(500)
+            ->get(['section_meeting_id', 'conflict_section_meeting_id'])
+            ->flatMap(fn ($conflict) => [
+                $conflict->section_meeting_id,
+                $conflict->conflict_section_meeting_id,
+            ])
+            ->filter()
+            ->unique()
+            ->values()
+            ->all();
+
+        $meetings = SectionMeeting::query()
+            ->with([
+                'section.subject',
+                'section.lecturers',
+                'room',
+            ])
+            ->whereNotNull('day_of_week')
+            ->whereNotNull('start_period')
+            ->whereNotNull('end_period')
+            ->whereBetween('day_of_week', [2, 7])
+            ->when($conflictMeetingIds, function ($query) use ($conflictMeetingIds) {
+                $query->whereNotIn('id', $conflictMeetingIds);
+            })
+            ->when($studyMode === 'online', function ($query) {
+                $query->whereHas('section', function ($sectionQuery) {
+                    $sectionQuery
+                        ->where('teaching_mode', 'like', '%Online%')
+                        ->orWhere('teaching_mode', 'like', '%online%')
+                        ->orWhere('teaching_mode', 'like', '%Zoom%')
+                        ->orWhere('teaching_mode', 'like', '%LMS%');
+                });
+            })
+            ->when($studyMode === 'direct', function ($query) {
+                $query->whereHas('section', function ($sectionQuery) {
+                    $sectionQuery
+                        ->whereNull('teaching_mode')
+                        ->orWhere(function ($modeQuery) {
+                            $modeQuery
+                                ->where('teaching_mode', 'not like', '%Online%')
+                                ->where('teaching_mode', 'not like', '%online%')
+                                ->where('teaching_mode', 'not like', '%Zoom%')
+                                ->where('teaching_mode', 'not like', '%LMS%');
+                        });
+                });
+            })
+            ->orderBy('day_of_week')
+            ->orderBy('start_period')
+            ->get();
+
+        $maxPeriod = min(
+            self::MAX_PERIOD_PER_DAY,
+            max(10, (int) $meetings->max('end_period'))
+        );
+        $periods = range(1, $maxPeriod);
+        $grid = [];
+
+        foreach ($periods as $period) {
+            for ($day = 2; $day <= 7; $day++) {
+                $grid[$period][$day] = [];
+            }
+        }
+
+        foreach ($meetings as $meeting) {
+            for ($period = $meeting->start_period; $period <= $meeting->end_period; $period++) {
+                if ($period >= 1 && $period <= $maxPeriod && $meeting->day_of_week >= 2 && $meeting->day_of_week <= 7) {
+                    $grid[$period][$meeting->day_of_week][] = $meeting;
+                }
+            }
+        }
+
+        $conflicts = collect();
+
+        $totalSections = Section::query()->count();
+        $sectionsWithMeetings = Section::query()->whereHas('meetings')->count();
+        $sectionsWithLecturers = Section::query()->whereHas('lecturers')->count();
+        $sectionsReadyToSchedule = Section::query()
+            ->whereHas('meetings')
+            ->whereHas('lecturers')
+            ->count();
+        $invalidLecturerSections = Section::query()
+            ->whereHas('meetings')
+            ->whereDoesntHave('lecturers')
+            ->count();
+
+        return view('imports.index', [
+            'grid' => $grid,
+            'periods' => $periods,
+            'maxPeriod' => $maxPeriod,
+            'meetings' => $meetings,
+            'latestImport' => ImportBatch::query()->latest()->first(),
+            'conflicts' => $conflicts,
+            'totalConflicts' => $totalConflicts,
+            'conflictMeetingIds' => $conflictMeetingIds,
+            'studyMode' => $studyMode,
+            'dataQuality' => [
+                'total_sections' => $totalSections,
+                'sections_with_meetings' => $sectionsWithMeetings,
+                'sections_with_lecturers' => $sectionsWithLecturers,
+                'sections_ready_to_schedule' => $sectionsReadyToSchedule,
+                'sections_missing_meetings' => max(0, $totalSections - $sectionsWithMeetings),
+                'sections_missing_valid_lecturers' => $invalidLecturerSections,
+            ],
+        ]);
     }
 
-    public function store(Request $request)
+    public function store(Request $request, ScheduleConflictService $conflictService)
     {
+        @set_time_limit(180);
+
         $request->validate([
             'excel_file' => ['required', 'file', 'mimes:xlsx,xls'],
         ]);
@@ -44,8 +153,8 @@ class ImportController extends Controller
 
         $sheetName = $sheet->getTitle();
         $rows = $sheet->toArray(null, true, true, true);
-        $dynamicSchema = $this->detectDynamicSchema($sheet);
         $isSchoolwideFormat = $this->isSchoolwideTimetableSheet($sheet);
+        $dynamicSchema = $isSchoolwideFormat ? null : $this->detectDynamicSchema($sheet);
 
         $this->resetImportedData();
 
@@ -403,9 +512,17 @@ class ImportController extends Controller
             'error_log' => implode("\n", $errors),
         ]);
 
+        $scheduleResult = $isSchoolwideFormat
+            ? ['applied' => 0, 'remaining' => $conflictService->detect(), 'stuck' => false]
+            : $conflictService->autoSchedule(20);
+        $message = "Đã import {$success} dòng hợp lệ, lỗi {$failed}. ";
+        $message .= $isSchoolwideFormat
+            ? "Hệ thống đã kiểm định lịch toàn trường, còn {$scheduleResult['remaining']} xung đột cần rà soát."
+            : "Hệ thống đã tự động xếp/tối ưu {$scheduleResult['applied']} lượt, còn {$scheduleResult['remaining']} xung đột cần rà soát.";
+
         return redirect()
             ->route('imports.index')
-            ->with('success', "Đã xóa dữ liệu cũ và import file mới thành công. Số dòng xử lý thành công: {$success}, lỗi: {$failed}");
+            ->with('success', $message);
     }
 
     private function cleanText($value): string
@@ -488,6 +605,14 @@ class ImportController extends Controller
             return false;
         }
 
+        if (count($parts) > 7 && ! preg_match('/\b(PGS|TS|ThS|GS|Dr)\b/ui', $name)) {
+            return false;
+        }
+
+        if (preg_match('/^(phòng|ban|khoa|viện|trường|bộ môn|trung tâm)\b/ui', $lowerName)) {
+            return false;
+        }
+
         if (!preg_match('/[a-zA-ZÀ-ỹ]/u', $name)) {
             return false;
         }
@@ -497,9 +622,15 @@ class ImportController extends Controller
 
     private function guessRoomType(string $roomName): ?string
     {
-        $lowerRoom = mb_strtolower($roomName, 'UTF-8');
+        $normalizedRoom = $this->normalizeHeader($roomName);
+        $lowerRoom = $normalizedRoom;
 
-        if (str_contains($lowerRoom, 'zoom') || str_contains($lowerRoom, 'online') || str_contains($lowerRoom, 'lms')) {
+        if (
+            str_contains($normalizedRoom, 'zoom')
+            || str_contains($normalizedRoom, 'online')
+            || str_contains($normalizedRoom, 'lms')
+            || str_contains($normalizedRoom, 'truc tuyen')
+        ) {
             return 'online';
         }
 
@@ -507,7 +638,29 @@ class ImportController extends Controller
             return 'lab';
         }
 
-        return 'theory';
+        if (str_contains($normalizedRoom, 'thuc hanh')) {
+            return 'lab';
+        }
+
+        if (
+            str_contains($normalizedRoom, 'hoa lac')
+            || str_contains($normalizedRoom, 'ho lac')
+            || str_contains($normalizedRoom, 'my dinh')
+            || str_contains($normalizedRoom, 'campus')
+            || str_contains($normalizedRoom, 'co so')
+        ) {
+            return 'campus';
+        }
+
+        if (
+            str_contains($normalizedRoom, 'phong')
+            || preg_match('/\b[A-Z]?\d{3,4}[A-Z]?\b/i', $roomName)
+            || preg_match('/\b[A-Z]\s*[-.]?\s*\d{2,4}\b/i', $roomName)
+        ) {
+            return 'room';
+        }
+
+        return 'location';
     }
 
     private function guessCampus(string $roomName): ?string
