@@ -1018,29 +1018,58 @@ class ImportController extends Controller
         $lines = preg_split('/\n+/', $timeRaw) ?: [];
 
         foreach ($lines as $line) {
+            $line = $this->cleanText($line);
+            if ($line === '') {
+                continue;
+            }
+
             $normalized = $this->normalizeHeader($line);
             $days = [];
 
-            if (preg_match_all('/\b(?:thu|t)\s*([2-8])\b/u', $normalized, $matches)) {
+            if (preg_match_all('/\b(?:thứ|thu|th)\s*([2-8])\b/iu', $line, $matches)) {
+                $days = array_map('intval', $matches[1]);
+            } elseif (preg_match_all('/(?:^|[\s,;])t([2-8])\b/iu', $line, $matches)) {
+                $days = array_map('intval', $matches[1]);
+            } elseif (preg_match_all('/\b(?:thu|th)\s*([2-8])\b/u', $normalized, $matches)) {
                 $days = array_map('intval', $matches[1]);
             }
 
+            preg_match_all('/\d+/', $normalized, $numberMatches);
+            $numbers = array_map('intval', $numberMatches[0] ?? []);
+
             if (empty($days)) {
-                preg_match_all('/\d+/', $normalized, $numberMatches);
-                $numbers = array_map('intval', $numberMatches[0] ?? []);
                 if (count($numbers) >= 3 && $numbers[0] >= 2 && $numbers[0] <= 8) {
                     $days = [$numbers[0]];
                 }
             }
 
-            if (!preg_match('/(\d+)\s*[-–]\s*(\d+)/u', $normalized, $periodMatch)) {
+            $start = null;
+            $end = null;
+
+            if (
+                preg_match('/(\d+)\s*[-–—]\s*(\d+)/u', $line, $periodMatch)
+                || preg_match('/(\d+)\s*[-–—]\s*(\d+)/u', $normalized, $periodMatch)
+            ) {
+                $start = (int) $periodMatch[1];
+                $end = (int) $periodMatch[2];
+            } elseif (!empty($days)) {
+                $periodNumbers = $numbers;
+
+                if ($periodNumbers && in_array($periodNumbers[0], $days, true)) {
+                    array_shift($periodNumbers);
+                }
+
+                if (count($periodNumbers) >= 2) {
+                    $start = (int) $periodNumbers[0];
+                    $end = (int) $periodNumbers[1];
+                }
+            }
+
+            if ($start === null || $end === null) {
                 continue;
             }
 
-            $start = (int) $periodMatch[1];
-            $end = (int) $periodMatch[2];
-
-            foreach ($days as $day) {
+            foreach (array_unique($days) as $day) {
                 $meetings[] = [
                     'day_of_week' => $day,
                     'start_period' => $start,
