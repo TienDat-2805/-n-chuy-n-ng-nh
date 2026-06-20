@@ -54,7 +54,6 @@
                 <small>Dựa trên ngày/buổi giảng viên có thể dạy và danh sách phòng học.</small>
                 <button class="btn btn-green" type="submit">Tạo thời khóa biểu</button>
             </form>
-
         </div>
     </section>
 
@@ -90,6 +89,10 @@
                     </select>
                 </label>
             </form>
+
+            <a class="btn export-btn" href="{{ route('timetable.export', ['campus' => $selectedCampus, 'study_mode' => $studyMode]) }}">
+                Lưu TKB
+            </a>
         </div>
 
         <table class="timetable-table">

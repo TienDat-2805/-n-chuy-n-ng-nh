@@ -1379,6 +1379,11 @@ tbody td {
     font-weight: 800;
 }
 
+.section-head .export-btn {
+    color: #fff;
+    white-space: nowrap;
+}
+
 .timetable-campus-filter {
     display: flex;
     align-items: flex-end;

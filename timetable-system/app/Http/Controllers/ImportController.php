@@ -17,6 +17,10 @@ use Illuminate\Support\Facades\DB;
 use App\Services\ScheduleConflictService;
 use PhpOffice\PhpSpreadsheet\IOFactory;
 use PhpOffice\PhpSpreadsheet\Spreadsheet;
+use PhpOffice\PhpSpreadsheet\Style\Alignment;
+use PhpOffice\PhpSpreadsheet\Style\Border;
+use PhpOffice\PhpSpreadsheet\Style\Fill;
+use PhpOffice\PhpSpreadsheet\Writer\Xlsx;
 use Throwable;
 
 class ImportController extends Controller
@@ -164,6 +168,156 @@ class ImportController extends Controller
             });
 
         return $campuses;
+    }
+
+    public function exportTimetable(Request $request)
+    {
+        $studyMode = $request->query('study_mode', 'all');
+        $selectedCampus = $request->query('campus', 'all');
+        $campuses = $this->campusOptions();
+
+        if ($selectedCampus !== 'all' && ! isset($campuses[$selectedCampus])) {
+            $selectedCampus = 'all';
+        }
+
+        $conflictMeetingIds = ScheduleConflict::query()
+            ->limit(500)
+            ->get(['section_meeting_id', 'conflict_section_meeting_id'])
+            ->flatMap(fn ($conflict) => [
+                $conflict->section_meeting_id,
+                $conflict->conflict_section_meeting_id,
+            ])
+            ->filter()
+            ->unique()
+            ->values()
+            ->all();
+
+        $meetings = SectionMeeting::query()
+            ->with([
+                'section.subject',
+                'section.lecturers',
+                'room',
+            ])
+            ->whereNotNull('day_of_week')
+            ->whereNotNull('start_period')
+            ->whereNotNull('end_period')
+            ->whereBetween('day_of_week', [2, 7])
+            ->when($conflictMeetingIds, function ($query) use ($conflictMeetingIds) {
+                $query->whereNotIn('id', $conflictMeetingIds);
+            })
+            ->when($selectedCampus !== 'all', function ($query) use ($selectedCampus) {
+                $query->whereHas('room', fn ($roomQuery) => $roomQuery->where('campus', $selectedCampus));
+            })
+            ->when($studyMode === 'online', function ($query) {
+                $query->whereHas('section', function ($sectionQuery) {
+                    $sectionQuery
+                        ->where('teaching_mode', 'like', '%Online%')
+                        ->orWhere('teaching_mode', 'like', '%online%')
+                        ->orWhere('teaching_mode', 'like', '%Zoom%')
+                        ->orWhere('teaching_mode', 'like', '%LMS%');
+                });
+            })
+            ->when($studyMode === 'direct', function ($query) {
+                $query->whereHas('section', function ($sectionQuery) {
+                    $sectionQuery
+                        ->whereNull('teaching_mode')
+                        ->orWhere(function ($modeQuery) {
+                            $modeQuery
+                                ->where('teaching_mode', 'not like', '%Online%')
+                                ->where('teaching_mode', 'not like', '%online%')
+                                ->where('teaching_mode', 'not like', '%Zoom%')
+                                ->where('teaching_mode', 'not like', '%LMS%');
+                        });
+                });
+            })
+            ->orderBy('day_of_week')
+            ->orderBy('start_period')
+            ->get();
+
+        $maxPeriod = min(
+            self::MAX_PERIOD_PER_DAY,
+            max(10, (int) $meetings->max('end_period'))
+        );
+
+        $spreadsheet = new Spreadsheet();
+        $sheet = $spreadsheet->getActiveSheet();
+        $sheet->setTitle('Thoi khoa bieu');
+
+        $sheet->mergeCells('A1:G1');
+        $sheet->setCellValue('A1', 'BẢNG THỜI KHÓA BIỂU');
+        $sheet->mergeCells('A2:G2');
+        $sheet->setCellValue('A2', 'Cơ sở: ' . ($selectedCampus === 'all' ? 'Tất cả cơ sở' : ($campuses[$selectedCampus] ?? $selectedCampus)));
+        $sheet->mergeCells('A3:G3');
+        $sheet->setCellValue('A3', 'Xuất lúc: ' . now()->format('d/m/Y H:i'));
+
+        $headers = ['Tiết', 'Thứ 2', 'Thứ 3', 'Thứ 4', 'Thứ 5', 'Thứ 6', 'Thứ 7'];
+        foreach ($headers as $index => $header) {
+            $sheet->setCellValue(chr(65 + $index) . '5', $header);
+        }
+
+        for ($period = 1; $period <= $maxPeriod; $period++) {
+            $row = $period + 5;
+            $sheet->setCellValue("A{$row}", "Tiết {$period}");
+
+            for ($day = 2; $day <= 7; $day++) {
+                $cellMeetings = $meetings
+                    ->filter(fn ($meeting) => (int) $meeting->day_of_week === $day
+                        && (int) $meeting->start_period <= $period
+                        && (int) $meeting->end_period >= $period)
+                    ->values();
+
+                $lines = $cellMeetings
+                    ->map(function ($meeting) use ($period) {
+                        $section = $meeting->section;
+                        $subject = $section?->subject;
+                        $lecturers = $section?->lecturers?->pluck('name')->filter()->join(', ');
+                        $room = $meeting->room?->name;
+                        $isStart = (int) $meeting->start_period === (int) $period;
+
+                        if (! $isStart) {
+                            return 'Tiếp tục: ' . ($section?->section_code ?? 'Lớp học phần');
+                        }
+
+                        return collect([
+                            $section?->section_code,
+                            $subject?->name,
+                            'Tiết ' . $meeting->start_period . '-' . $meeting->end_period,
+                            $lecturers ? 'GV: ' . $lecturers : null,
+                            $room ? 'Phòng: ' . $room : null,
+                        ])->filter()->join("\n");
+                    })
+                    ->filter()
+                    ->join("\n\n");
+
+                $sheet->setCellValue(chr(64 + $day) . $row, $lines !== '' ? $lines : '-');
+            }
+        }
+
+        $lastRow = $maxPeriod + 5;
+        $sheet->getStyle('A1:G3')->getAlignment()->setHorizontal(Alignment::HORIZONTAL_CENTER);
+        $sheet->getStyle('A1')->getFont()->setBold(true)->setSize(16);
+        $sheet->getStyle('A5:G5')->getFont()->setBold(true);
+        $sheet->getStyle('A5:G5')->getFill()->setFillType(Fill::FILL_SOLID)->getStartColor()->setRGB('EAF1FF');
+        $sheet->getStyle("A5:G{$lastRow}")->getBorders()->getAllBorders()->setBorderStyle(Border::BORDER_THIN);
+        $sheet->getStyle("A5:G{$lastRow}")->getAlignment()
+            ->setVertical(Alignment::VERTICAL_TOP)
+            ->setWrapText(true);
+
+        foreach (range('A', 'G') as $column) {
+            $sheet->getColumnDimension($column)->setWidth($column === 'A' ? 12 : 34);
+        }
+
+        for ($row = 6; $row <= $lastRow; $row++) {
+            $sheet->getRowDimension($row)->setRowHeight(92);
+        }
+
+        $fileName = 'thoi-khoa-bieu-' . now()->format('Ymd-His') . '.xlsx';
+
+        return response()->streamDownload(function () use ($spreadsheet) {
+            (new Xlsx($spreadsheet))->save('php://output');
+        }, $fileName, [
+            'Content-Type' => 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        ]);
     }
 
     public function store(Request $request, ScheduleConflictService $conflictService)

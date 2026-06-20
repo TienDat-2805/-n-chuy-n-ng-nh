@@ -27,6 +27,7 @@ Route::middleware('auth')->group(function () {
 
     Route::get('/imports', [ImportController::class, 'index'])->name('imports.index');
     Route::post('/imports', [ImportController::class, 'store'])->name('imports.store');
+    Route::get('/timetable/export', [ImportController::class, 'exportTimetable'])->name('timetable.export');
     Route::post('/schedule/generate', [ScheduleController::class, 'generate'])->name('schedule.generate');
 
     Route::get('/subjects', [SubjectController::class, 'index'])->name('subjects.index');
