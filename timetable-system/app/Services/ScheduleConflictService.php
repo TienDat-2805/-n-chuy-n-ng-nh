@@ -120,6 +120,36 @@ class ScheduleConflictService
                 continue;
             }
 
+            $availabilityMessages = $this->lecturerAvailabilityMessages($meeting);
+
+            if ($availabilityMessages) {
+                $created += $this->createConflict(
+                    'lecturer_availability_conflict',
+                    $meeting,
+                    null,
+                    implode(' ', $availabilityMessages)
+                );
+
+                if ($created >= $limit) {
+                    return $created;
+                }
+            }
+
+            $roomAssignmentMessage = $this->roomAssignmentMessage($meeting);
+
+            if ($roomAssignmentMessage) {
+                $created += $this->createConflict(
+                    'room_assignment_conflict',
+                    $meeting,
+                    null,
+                    $roomAssignmentMessage
+                );
+
+                if ($created >= $limit) {
+                    return $created;
+                }
+            }
+
             for ($period = (int) $meeting->start_period; $period <= (int) $meeting->end_period; $period++) {
                 $buckets[(int) $meeting->day_of_week][$period][] = $meeting;
             }
@@ -316,6 +346,10 @@ class ScheduleConflictService
         $meeting->loadMissing('section.lecturers');
         $lecturerIds = $meeting->section?->lecturers?->pluck('id')->all() ?? [];
 
+        if (! $this->areLecturersAvailableAt($meeting->section?->lecturers ?? collect(), $day, $start, $end)) {
+            return false;
+        }
+
         $overlappingMeetings = $this->availabilityMeetings()
             ->filter(function (SectionMeeting $other) use ($meeting, $day, $start, $end) {
                 return $other->id !== $meeting->id
@@ -340,6 +374,119 @@ class ScheduleConflictService
         }
 
         return true;
+    }
+
+    private function lecturerAvailabilityMessages(SectionMeeting $meeting): array
+    {
+        $meeting->loadMissing('section.lecturers');
+        $messages = [];
+
+        foreach ($meeting->section?->lecturers ?? collect() as $lecturer) {
+            if ($this->isLecturerAvailableAt($lecturer, (int) $meeting->day_of_week, (int) $meeting->start_period, (int) $meeting->end_period)) {
+                continue;
+            }
+
+            $messages[] = "Giảng viên {$lecturer->name} bị xếp ngoài ngày/buổi có thể dạy.";
+        }
+
+        return $messages;
+    }
+
+    private function roomAssignmentMessage(SectionMeeting $meeting): ?string
+    {
+        $meeting->loadMissing(['section.subject', 'room']);
+
+        if (! $meeting->room) {
+            return null;
+        }
+
+        $isPhysicalEducation = $this->isPhysicalEducationMeeting($meeting);
+        $isSportRoom = $this->isSportRoom($meeting);
+
+        if ($isPhysicalEducation && ! $isSportRoom) {
+            return 'Môn thể chất phải được xếp tại điểm học thể chất.';
+        }
+
+        if (! $isPhysicalEducation && $isSportRoom) {
+            return 'Chỉ môn thể chất được xếp tại điểm học thể chất.';
+        }
+
+        return null;
+    }
+
+    private function isPhysicalEducationMeeting(SectionMeeting $meeting): bool
+    {
+        $text = $this->normalize(implode(' ', array_filter([
+            $meeting->section?->section_code,
+            $meeting->section?->teaching_mode,
+            $meeting->section?->support_request,
+            $meeting->section?->note,
+            $meeting->section?->subject?->subject_code,
+            $meeting->section?->subject?->name,
+        ])));
+
+        return str_contains($text, 'giao duc the chat')
+            || str_contains($text, 'the chat')
+            || str_contains($text, 'the thao')
+            || str_contains($text, 'physical education')
+            || str_contains($text, 'sport')
+            || str_contains($text, 'gdtc')
+            || preg_match('/\bpec\b/', $text) === 1;
+    }
+
+    private function isSportRoom(SectionMeeting $meeting): bool
+    {
+        $text = $this->normalize(implode(' ', array_filter([
+            $meeting->room?->name,
+            $meeting->room?->type,
+            $meeting->room?->campus,
+        ])));
+
+        return str_contains($text, 'san')
+            || str_contains($text, 'svd')
+            || str_contains($text, 'the chat')
+            || str_contains($text, 'the thao')
+            || str_contains($text, 'stadium')
+            || str_contains($text, 'gym');
+    }
+
+    private function areLecturersAvailableAt(Collection $lecturers, int $day, int $start, int $end): bool
+    {
+        foreach ($lecturers as $lecturer) {
+            if (! $this->isLecturerAvailableAt($lecturer, $day, $start, $end)) {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    private function isLecturerAvailableAt($lecturer, int $day, int $start, int $end): bool
+    {
+        if (($lecturer->availability_mode ?? 'unrestricted') !== 'limited') {
+            return true;
+        }
+
+        $session = $this->sessionForRange($start, $end);
+
+        if (! $session) {
+            return false;
+        }
+
+        return in_array("{$day}_{$session}", $lecturer->available_slots ?? [], true);
+    }
+
+    private function sessionForRange(int $start, int $end): ?string
+    {
+        if ($start >= 1 && $end <= 6) {
+            return 'morning';
+        }
+
+        if ($start >= 7 && $end <= self::MAX_PERIOD_PER_DAY) {
+            return 'afternoon';
+        }
+
+        return null;
     }
 
     private function availabilityMeetings(): Collection
@@ -465,5 +612,27 @@ class ScheduleConflictService
         ]);
 
         return 1;
+    }
+
+    private function normalize(string $value): string
+    {
+        $value = mb_strtolower(trim($value), 'UTF-8');
+        $value = strtr($value, [
+            'à' => 'a', 'á' => 'a', 'ạ' => 'a', 'ả' => 'a', 'ã' => 'a',
+            'â' => 'a', 'ầ' => 'a', 'ấ' => 'a', 'ậ' => 'a', 'ẩ' => 'a', 'ẫ' => 'a',
+            'ă' => 'a', 'ằ' => 'a', 'ắ' => 'a', 'ặ' => 'a', 'ẳ' => 'a', 'ẵ' => 'a',
+            'è' => 'e', 'é' => 'e', 'ẹ' => 'e', 'ẻ' => 'e', 'ẽ' => 'e',
+            'ê' => 'e', 'ề' => 'e', 'ế' => 'e', 'ệ' => 'e', 'ể' => 'e', 'ễ' => 'e',
+            'ì' => 'i', 'í' => 'i', 'ị' => 'i', 'ỉ' => 'i', 'ĩ' => 'i',
+            'ò' => 'o', 'ó' => 'o', 'ọ' => 'o', 'ỏ' => 'o', 'õ' => 'o',
+            'ô' => 'o', 'ồ' => 'o', 'ố' => 'o', 'ộ' => 'o', 'ổ' => 'o', 'ỗ' => 'o',
+            'ơ' => 'o', 'ờ' => 'o', 'ớ' => 'o', 'ợ' => 'o', 'ở' => 'o', 'ỡ' => 'o',
+            'ù' => 'u', 'ú' => 'u', 'ụ' => 'u', 'ủ' => 'u', 'ũ' => 'u',
+            'ư' => 'u', 'ừ' => 'u', 'ứ' => 'u', 'ự' => 'u', 'ử' => 'u', 'ữ' => 'u',
+            'ỳ' => 'y', 'ý' => 'y', 'ỵ' => 'y', 'ỷ' => 'y', 'ỹ' => 'y',
+            'đ' => 'd',
+        ]);
+
+        return trim((string) preg_replace('/[^a-z0-9]+/', ' ', $value));
     }
 }

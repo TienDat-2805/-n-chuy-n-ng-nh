@@ -11,6 +11,12 @@ class Lecturer extends Model
         'department',
         'email',
         'phone',
+        'availability_mode',
+        'available_slots',
+    ];
+
+    protected $casts = [
+        'available_slots' => 'array',
     ];
 
     public function sectionInstructors()

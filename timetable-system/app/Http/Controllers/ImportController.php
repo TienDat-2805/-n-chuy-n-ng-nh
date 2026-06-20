@@ -22,10 +22,22 @@ use Throwable;
 class ImportController extends Controller
 {
     private const MAX_PERIOD_PER_DAY = 12;
+    private const CAMPUSES = [
+        'Hòa Lạc' => 'Hòa Lạc',
+        'Trịnh Văn Bô' => 'Trịnh Văn Bô',
+        '144 Xuân Thủy' => '144 Xuân Thủy',
+    ];
 
     public function index(Request $request)
     {
         $studyMode = $request->query('study_mode', 'all');
+        $selectedCampus = $request->query('campus', 'all');
+        $campuses = $this->campusOptions();
+
+        if ($selectedCampus !== 'all' && ! isset($campuses[$selectedCampus])) {
+            $selectedCampus = 'all';
+        }
+
         $totalConflicts = ScheduleConflict::query()->count();
         $conflictMeetingIds = ScheduleConflict::query()
             ->limit(500)
@@ -51,6 +63,9 @@ class ImportController extends Controller
             ->whereBetween('day_of_week', [2, 7])
             ->when($conflictMeetingIds, function ($query) use ($conflictMeetingIds) {
                 $query->whereNotIn('id', $conflictMeetingIds);
+            })
+            ->when($selectedCampus !== 'all', function ($query) use ($selectedCampus) {
+                $query->whereHas('room', fn ($roomQuery) => $roomQuery->where('campus', $selectedCampus));
             })
             ->when($studyMode === 'online', function ($query) {
                 $query->whereHas('section', function ($sectionQuery) {
@@ -105,11 +120,9 @@ class ImportController extends Controller
         $sectionsWithMeetings = Section::query()->whereHas('meetings')->count();
         $sectionsWithLecturers = Section::query()->whereHas('lecturers')->count();
         $sectionsReadyToSchedule = Section::query()
-            ->whereHas('meetings')
             ->whereHas('lecturers')
             ->count();
         $invalidLecturerSections = Section::query()
-            ->whereHas('meetings')
             ->whereDoesntHave('lecturers')
             ->count();
 
@@ -123,6 +136,8 @@ class ImportController extends Controller
             'totalConflicts' => $totalConflicts,
             'conflictMeetingIds' => $conflictMeetingIds,
             'studyMode' => $studyMode,
+            'campuses' => $campuses,
+            'selectedCampus' => $selectedCampus,
             'dataQuality' => [
                 'total_sections' => $totalSections,
                 'sections_with_meetings' => $sectionsWithMeetings,
@@ -132,6 +147,23 @@ class ImportController extends Controller
                 'sections_missing_valid_lecturers' => $invalidLecturerSections,
             ],
         ]);
+    }
+
+    private function campusOptions(): array
+    {
+        $campuses = self::CAMPUSES;
+
+        Room::query()
+            ->whereNotNull('campus')
+            ->where('campus', '!=', '')
+            ->distinct()
+            ->orderBy('campus')
+            ->pluck('campus')
+            ->each(function (string $campus) use (&$campuses) {
+                $campuses[$campus] ??= $campus;
+            });
+
+        return $campuses;
     }
 
     public function store(Request $request, ScheduleConflictService $conflictService)
@@ -178,6 +210,33 @@ class ImportController extends Controller
         $lastPhone = null;
         $lastRoomName = null;
         $dynamicState = [];
+
+        if ($isSchoolwideFormat) {
+            foreach ($rows as $index => $row) {
+                if ($index < 11) {
+                    continue;
+                }
+
+                try {
+                    if ($this->importSchoolwideSchedulingRow($row, $index)) {
+                        $success++;
+                    }
+                } catch (Throwable $e) {
+                    $failed++;
+                    $errors[] = 'Dòng ' . $index . ': ' . $e->getMessage();
+                }
+            }
+
+            $batch->update([
+                'success_rows' => $success,
+                'failed_rows' => $failed,
+                'error_log' => implode("\n", $errors),
+            ]);
+
+            return redirect()
+                ->route('imports.index')
+                ->with('success', "Đã import {$success} dòng hợp lệ, lỗi {$failed}. Dữ liệu được gom theo môn học và giảng viên. Hãy cấu hình ngày/buổi giảng viên có thể dạy trong trang Môn học rồi bấm xếp lịch.");
+        }
 
         foreach ($rows as $index => $row) {
             if ($dynamicSchema) {
@@ -523,6 +582,75 @@ class ImportController extends Controller
         return redirect()
             ->route('imports.index')
             ->with('success', $message);
+    }
+
+    private function importSchoolwideSchedulingRow(array $row, int $index): bool
+    {
+        $subjectName = $this->cleanText($row['C'] ?? '');
+        $subjectCode = $this->cleanText($row['D'] ?? '');
+        $lecturerRaw = $this->cleanText($row['L'] ?? '');
+
+        if ($subjectName === '' && $subjectCode === '' && $lecturerRaw === '') {
+            return false;
+        }
+
+        if ($subjectCode === '' || $subjectName === '') {
+            return false;
+        }
+
+        $subject = Subject::updateOrCreate(
+            ['subject_code' => $subjectCode],
+            [
+                'name' => $subjectName,
+                'credits' => null,
+            ]
+        );
+
+        $section = Section::updateOrCreate(
+            ['section_code' => $subjectCode],
+            [
+                'subject_id' => $subject->id,
+                'note' => 'Dữ liệu được gom theo môn học để hệ thống tự xếp lịch mới.',
+            ]
+        );
+
+        foreach ($this->splitLecturerNames($lecturerRaw) as $lecturerName) {
+            $lecturer = Lecturer::firstOrCreate(
+                [
+                    'name' => $lecturerName,
+                    'email' => null,
+                ]
+            );
+
+            SectionInstructor::updateOrCreate(
+                [
+                    'section_id' => $section->id,
+                    'lecturer_id' => $lecturer->id,
+                ],
+                [
+                    'role' => 'Giảng viên phụ trách',
+                ]
+            );
+        }
+
+        return true;
+    }
+
+    private function splitLecturerNames(string $value): array
+    {
+        $value = preg_replace('/\s+(và|va|and)\s+/iu', ';', $value);
+        $parts = preg_split('/[\n;,]+/u', (string) $value) ?: [];
+        $names = [];
+
+        foreach ($parts as $part) {
+            $name = $this->cleanText($part);
+
+            if ($this->isValidLecturerName($name)) {
+                $names[$name] = true;
+            }
+        }
+
+        return array_keys($names);
     }
 
     private function cleanText($value): string
@@ -1450,8 +1578,6 @@ class ImportController extends Controller
             Section::truncate();
 
             Subject::truncate();
-            Lecturer::truncate();
-            Room::truncate();
             Program::truncate();
             Cohort::truncate();
 

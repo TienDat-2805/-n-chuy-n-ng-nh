@@ -951,6 +951,170 @@ tbody td {
     font-weight: 700;
 }
 
+.subject-schedule-summary {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-bottom: 16px;
+}
+
+.subject-schedule-summary span {
+    display: inline-flex;
+    align-items: center;
+    min-height: 34px;
+    padding: 7px 10px;
+    border-radius: 8px;
+    color: var(--muted);
+    background: var(--soft);
+    font-size: 13px;
+    font-weight: 800;
+}
+
+.subject-lecturer-list {
+    display: grid;
+    gap: 12px;
+}
+
+.subject-add-lecturer {
+    margin-bottom: 14px;
+    padding: 12px;
+    border: 1px solid rgba(72, 128, 255, 0.22);
+    border-radius: 8px;
+    background: rgba(72, 128, 255, 0.06);
+}
+
+.subject-add-lecturer summary {
+    cursor: pointer;
+    color: var(--primary);
+    font-size: 14px;
+    font-weight: 900;
+}
+
+.subject-add-lecturer form {
+    display: grid;
+    grid-template-columns: minmax(180px, 1.1fr) minmax(180px, 1fr) auto;
+    gap: 10px;
+    margin-top: 12px;
+}
+
+.subject-add-lecturer input {
+    min-width: 0;
+    width: 100%;
+    padding: 12px 14px;
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    background: #fff;
+    color: var(--text);
+    font-weight: 800;
+}
+
+.subject-add-lecturer small {
+    display: block;
+    margin-top: 9px;
+    color: var(--muted);
+    font-size: 12px;
+    font-weight: 700;
+}
+
+.subject-lecturer-card {
+    padding: 14px;
+    border: 1px solid rgba(213, 213, 213, 0.85);
+    border-radius: 8px;
+    background: #fff;
+}
+
+.subject-lecturer-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    margin-bottom: 12px;
+}
+
+.subject-lecturer-head strong,
+.subject-lecturer-head small {
+    display: block;
+}
+
+.subject-lecturer-head strong {
+    font-size: 16px;
+    font-weight: 800;
+}
+
+.subject-lecturer-head small {
+    margin-top: 3px;
+    color: var(--muted);
+    font-size: 13px;
+    font-weight: 700;
+}
+
+.availability-save-status {
+    min-width: 74px;
+    text-align: right;
+    color: var(--muted);
+    font-size: 12px;
+    font-weight: 800;
+}
+
+.availability-save-status[data-state="saved"] {
+    color: #00a884;
+}
+
+.availability-save-status[data-state="error"] {
+    color: #ff3b30;
+}
+
+.availability-mode-field {
+    display: grid;
+    gap: 8px;
+    margin-bottom: 12px;
+}
+
+.availability-mode-field span {
+    color: var(--muted);
+    font-size: 13px;
+    font-weight: 800;
+}
+
+.is-hidden {
+    display: none !important;
+}
+
+.compact-availability {
+    display: grid;
+    grid-template-columns: repeat(6, minmax(110px, 1fr));
+    gap: 8px;
+}
+
+.compact-day {
+    padding: 10px;
+    border-radius: 8px;
+    background: var(--soft);
+}
+
+.compact-day strong {
+    display: block;
+    margin-bottom: 8px;
+    color: var(--text);
+    font-size: 13px;
+    font-weight: 800;
+}
+
+.compact-day label {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    margin-top: 6px;
+    color: var(--muted);
+    font-size: 13px;
+    font-weight: 800;
+}
+
+.compact-day input {
+    width: 17px;
+    height: 17px;
+}
+
 .workspace-grid {
     display: grid;
     grid-template-columns: minmax(0, 1fr) 340px;
@@ -1215,6 +1379,452 @@ tbody td {
     font-weight: 800;
 }
 
+.timetable-campus-filter {
+    display: flex;
+    align-items: flex-end;
+    justify-content: flex-end;
+}
+
+.timetable-campus-filter label {
+    display: grid;
+    gap: 7px;
+    min-width: 220px;
+}
+
+.timetable-campus-filter span {
+    color: var(--muted);
+    font-size: 13px;
+    font-weight: 800;
+}
+
+.timetable-campus-filter select {
+    width: 100%;
+    padding: 12px 14px;
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    background: #fff;
+    color: var(--text);
+    font-weight: 800;
+}
+
+.action-tool {
+    border-color: rgba(0, 182, 155, 0.22);
+}
+
+.action-tool .btn {
+    width: 100%;
+    margin-top: 4px;
+}
+
+.management-panel {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(360px, 520px);
+    gap: 22px;
+    align-items: start;
+    margin-bottom: 22px;
+    padding: 24px;
+    border: 1px solid rgba(72, 128, 255, 0.18);
+    border-radius: 8px;
+    background: linear-gradient(135deg, rgba(72, 128, 255, 0.1), rgba(0, 182, 155, 0.08));
+}
+
+.management-panel h2 {
+    margin-top: 0;
+}
+
+.management-panel p {
+    margin: 8px 0 0;
+    color: var(--muted);
+    font-size: 15px;
+    font-weight: 700;
+    line-height: 1.55;
+}
+
+.management-form {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 12px;
+    padding: 16px;
+    border-radius: 8px;
+    background: #fff;
+    box-shadow: 0 12px 30px rgba(72, 128, 255, 0.1);
+}
+
+.management-form .btn {
+    grid-column: 1 / -1;
+}
+
+.management-stack {
+    display: grid;
+    gap: 12px;
+}
+
+.full-width {
+    width: 100%;
+}
+
+.management-list {
+    display: grid;
+    gap: 16px;
+}
+
+.management-card {
+    position: relative;
+    padding: 18px;
+    border: 1px solid rgba(213, 213, 213, 0.85);
+    border-radius: 8px;
+    background: #fff;
+}
+
+.management-card-head {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 14px;
+    margin-bottom: 14px;
+}
+
+.management-card-head strong,
+.management-card-head span {
+    display: block;
+}
+
+.management-card-head strong {
+    font-size: 18px;
+    font-weight: 800;
+}
+
+.management-card-head span {
+    margin-top: 4px;
+    color: var(--muted);
+    font-size: 13px;
+    font-weight: 700;
+}
+
+.management-fields {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 10px;
+    margin-bottom: 16px;
+}
+
+.room-fields {
+    margin-bottom: 0;
+}
+
+.availability-grid {
+    display: grid;
+    grid-template-columns: repeat(6, minmax(120px, 1fr));
+    gap: 10px;
+}
+
+.availability-day {
+    padding: 12px;
+    border-radius: 8px;
+    background: var(--soft);
+}
+
+.availability-day strong {
+    display: block;
+    margin-bottom: 10px;
+    font-size: 13px;
+    font-weight: 800;
+}
+
+.slot-check {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-top: 7px;
+    color: var(--muted);
+    font-size: 13px;
+    font-weight: 800;
+}
+
+.slot-check input {
+    width: 18px;
+    height: 18px;
+}
+
+.inline-delete {
+    margin-top: 12px;
+}
+
+.inline-delete button {
+    min-height: 36px;
+    padding: 0 12px;
+    border: 1px solid rgba(239, 56, 38, 0.22);
+    border-radius: 8px;
+    color: var(--red);
+    background: rgba(239, 56, 38, 0.08);
+    font-weight: 800;
+    cursor: pointer;
+}
+
+.room-hero {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(340px, 520px);
+    gap: 22px;
+    align-items: start;
+    margin-bottom: 18px;
+    padding: 24px;
+    border: 1px solid rgba(72, 128, 255, 0.18);
+    border-radius: 8px;
+    background: linear-gradient(135deg, rgba(72, 128, 255, 0.1), rgba(0, 182, 155, 0.08));
+}
+
+.room-hero h2 {
+    margin-top: 0;
+}
+
+.room-hero p {
+    margin: 8px 0 0;
+    color: var(--muted);
+    font-size: 15px;
+    font-weight: 700;
+    line-height: 1.55;
+}
+
+.room-create-form {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 160px;
+    gap: 12px;
+    padding: 16px;
+    border-radius: 8px;
+    background: #fff;
+    box-shadow: 0 12px 30px rgba(72, 128, 255, 0.1);
+}
+
+.room-create-form .btn {
+    grid-column: 1 / -1;
+}
+
+.room-stat-grid {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 14px;
+    margin-bottom: 18px;
+}
+
+.campus-tabs {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+    gap: 10px;
+    margin-bottom: 18px;
+}
+
+.campus-tab {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    min-height: 54px;
+    padding: 12px 14px;
+    border: 1px solid rgba(213, 213, 213, 0.9);
+    border-radius: 8px;
+    background: #fff;
+}
+
+.campus-tab:hover,
+.campus-tab.active {
+    border-color: rgba(72, 128, 255, 0.55);
+    background: rgba(72, 128, 255, 0.09);
+}
+
+.campus-tab span {
+    color: var(--text);
+    font-size: 14px;
+    font-weight: 800;
+}
+
+.campus-tab strong {
+    min-width: 34px;
+    min-height: 30px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 8px;
+    color: var(--primary);
+    background: rgba(72, 128, 255, 0.12);
+    font-size: 14px;
+    font-weight: 800;
+}
+
+.room-stat-card {
+    padding: 18px;
+    border: 1px solid rgba(213, 213, 213, 0.85);
+    border-radius: 8px;
+    background: #fff;
+}
+
+.room-stat-card span {
+    display: block;
+    margin-bottom: 6px;
+    color: var(--muted);
+    font-size: 13px;
+    font-weight: 800;
+}
+
+.room-stat-card strong {
+    color: var(--text);
+    font-size: 30px;
+    font-weight: 800;
+}
+
+.room-filter {
+    display: grid;
+    grid-template-columns: minmax(220px, 1fr) 180px 180px auto auto;
+    gap: 10px;
+    align-items: center;
+    margin-bottom: 18px;
+}
+
+.room-filter input,
+.room-filter select {
+    background: #fff;
+}
+
+.room-resource-list {
+    display: grid;
+    gap: 14px;
+}
+
+.room-resource-card {
+    padding: 18px;
+    border: 1px solid rgba(213, 213, 213, 0.85);
+    border-radius: 8px;
+    background: #fff;
+}
+
+.room-resource-head {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    gap: 14px;
+    margin-bottom: 14px;
+}
+
+.room-title-line {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+}
+
+.room-title-line strong {
+    font-size: 18px;
+    font-weight: 800;
+}
+
+.room-resource-head small {
+    display: block;
+    margin-top: 5px;
+    color: var(--muted);
+    font-size: 13px;
+    font-weight: 700;
+}
+
+.room-type-chip {
+    padding: 5px 9px;
+    border-radius: 6px;
+    color: var(--primary);
+    background: rgba(72, 128, 255, 0.12);
+    font-size: 12px;
+    font-weight: 800;
+}
+
+.room-edit-grid {
+    display: grid;
+    grid-template-columns: minmax(220px, 1.2fr) 160px minmax(180px, 1fr);
+    gap: 10px;
+}
+
+.compact-room-edit {
+    margin-top: 6px;
+}
+
+.room-schedule-panel {
+    margin-top: 12px;
+    padding: 12px;
+    border: 1px solid rgba(72, 128, 255, 0.14);
+    border-radius: 8px;
+    background: rgba(72, 128, 255, 0.05);
+}
+
+.room-schedule-panel summary {
+    cursor: pointer;
+    color: var(--primary);
+    font-size: 13px;
+    font-weight: 800;
+}
+
+.room-schedule-list {
+    display: grid;
+    gap: 8px;
+    margin-top: 12px;
+}
+
+.room-schedule-item {
+    padding: 10px 12px;
+    border-radius: 8px;
+    background: #fff;
+}
+
+.room-schedule-item strong,
+.room-schedule-item span,
+.room-schedule-item small {
+    display: block;
+}
+
+.room-schedule-item strong {
+    color: var(--primary);
+    font-size: 13px;
+    font-weight: 800;
+}
+
+.room-schedule-item span {
+    margin-top: 3px;
+    color: var(--text);
+    font-size: 14px;
+    font-weight: 800;
+}
+
+.room-schedule-item small {
+    margin-top: 4px;
+    color: var(--muted);
+    font-size: 12px;
+    font-weight: 700;
+}
+
+.room-edit-panel {
+    margin-top: 12px;
+    padding-top: 12px;
+    border-top: 1px solid rgba(213, 213, 213, 0.7);
+}
+
+.room-edit-panel summary {
+    width: fit-content;
+    cursor: pointer;
+    color: var(--primary);
+    font-size: 13px;
+    font-weight: 800;
+}
+
+.room-edit-panel[open] summary {
+    margin-bottom: 12px;
+}
+
+.room-update-button {
+    margin-top: 12px;
+}
+
+.room-locked-note {
+    margin-top: 12px;
+    color: var(--muted);
+    font-size: 13px;
+    font-weight: 800;
+}
+
 .account-page {
     min-height: 100vh;
     display: grid;
@@ -1371,12 +1981,23 @@ tbody td {
     .hero-panel,
     .schedule-workspace,
     .import-panel,
+    .management-panel,
+    .room-hero,
     .conflict-card {
         grid-template-columns: 1fr;
     }
 
     .stat-grid {
         grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+
+    .room-stat-grid {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+
+    .room-filter,
+    .room-edit-grid {
+        grid-template-columns: 1fr;
     }
 
     .action-grid {
@@ -1412,14 +2033,31 @@ tbody td {
         flex-direction: column;
     }
 
+    .section-head {
+        align-items: stretch;
+        flex-direction: column;
+    }
+
+    .timetable-campus-filter,
+    .timetable-campus-filter label {
+        width: 100%;
+    }
+
     .info-grid {
         grid-template-columns: 1fr;
     }
 
     .stat-grid,
+    .room-stat-grid,
     .action-grid,
     .subject-detail-grid,
-    .section-mini-item {
+    .section-mini-item,
+    .room-create-form,
+    .subject-add-lecturer form,
+    .management-form,
+    .management-fields,
+    .availability-grid,
+    .compact-availability {
         grid-template-columns: 1fr;
     }
 

@@ -18,7 +18,7 @@
                 <div class="avatar">{{ mb_strtoupper(mb_substr(auth()->user()->name, 0, 1)) }}</div>
                 <div>
                     <div class="account-name">{{ auth()->user()->name }}</div>
-                    <div class="account-role">Quản trị thời khóa biểu</div>
+                    <div class="account-role">Người dùng hệ thống</div>
                 </div>
             </div>
 
@@ -33,11 +33,15 @@
         <nav class="nav">
             <a class="{{ request()->routeIs('imports.*') ? 'active' : '' }}" href="{{ route('imports.index') }}">
                 <span class="nav-icon">TK</span>
-                Nhập / xuất thời khóa biểu
+                Nhập & xếp lịch
             </a>
             <a class="{{ request()->routeIs('subjects.*') ? 'active' : '' }}" href="{{ route('subjects.index') }}">
                 <span class="nav-icon">MH</span>
-                Danh sách môn học
+                Môn học
+            </a>
+            <a class="{{ request()->routeIs('rooms.*') ? 'active' : '' }}" href="{{ route('rooms.index') }}">
+                <span class="nav-icon">P</span>
+                Phòng học
             </a>
         </nav>
     </aside>
@@ -45,14 +49,15 @@
     <main class="main">
         <div class="page-head">
             <div>
-                <div class="eyebrow">Hệ thống tạo thời khóa biểu</div>
+                <div class="eyebrow">Hệ thống lập thời khóa biểu</div>
                 <h1>@yield('page_title')</h1>
             </div>
         </div>
 
-        <div class="quick-workflow two-items">
-            <a class="{{ request()->routeIs('imports.*') ? 'active' : '' }}" href="{{ route('imports.index') }}">Nhập / xuất thời khóa biểu</a>
-            <a class="{{ request()->routeIs('subjects.*') ? 'active' : '' }}" href="{{ route('subjects.index') }}">Danh sách môn học</a>
+        <div class="quick-workflow">
+            <a class="{{ request()->routeIs('imports.*') ? 'active' : '' }}" href="{{ route('imports.index') }}">Nhập & xếp lịch</a>
+            <a class="{{ request()->routeIs('subjects.*') ? 'active' : '' }}" href="{{ route('subjects.index') }}">Môn học</a>
+            <a class="{{ request()->routeIs('rooms.*') ? 'active' : '' }}" href="{{ route('rooms.index') }}">Phòng học</a>
         </div>
 
         <div class="container @yield('container_class')">

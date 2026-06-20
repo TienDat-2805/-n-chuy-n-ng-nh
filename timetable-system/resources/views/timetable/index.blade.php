@@ -27,7 +27,7 @@
         </select>
 
         <select name="room_id">
-            <option value="">-- Lọc theo phòng/địa điểm --</option>
+            <option value="">-- Lọc theo phòng học --</option>
             @foreach($rooms as $room)
                 <option value="{{ $room->id }}" @selected($selectedRoomId == $room->id)>
                     {{ $room->name }}
@@ -36,7 +36,6 @@
         </select>
 
         <button class="btn btn-green" type="submit">Lọc lịch</button>
-
         <a class="btn btn-gray" href="{{ route('timetable.index') }}">Làm mới</a>
     </form>
 
@@ -48,80 +47,56 @@
         <thead>
         <tr>
             <th class="period-cell">Tiết</th>
-            <th>Thứ 2</th>
-            <th>Thứ 3</th>
-            <th>Thứ 4</th>
-            <th>Thứ 5</th>
-            <th>Thứ 6</th>
+            @foreach(range(2, 7) as $day)
+                <th>Thứ {{ $day }}</th>
+            @endforeach
         </tr>
         </thead>
 
         <tbody>
         @foreach($periods as $period)
             <tr>
-                <td class="period-cell">
-                    Tiết {{ $period }}
+                <td class="period-cell">Tiết {{ $period }}</td>
 
-                </td>
-
-                @for($day = 2; $day <= 6; $day++)
+                @foreach(range(2, 7) as $day)
                     <td>
                         @php
                             $cellMeetings = $grid[$period][$day] ?? [];
                         @endphp
 
-                        @if(count($cellMeetings) > 0)
-                            @foreach($cellMeetings as $meeting)
-                                @php
-                                    $isStart = $meeting->start_period == $period;
-                                    $displayEndPeriod = min($meeting->end_period, $maxPeriod);
+                        @forelse($cellMeetings as $meeting)
+                            @php
+                                $isStart = $meeting->start_period == $period;
+                                $displayEndPeriod = min($meeting->end_period, $maxPeriod);
+                                $hasConflict = count($cellMeetings) > 1;
+                            @endphp
 
-                                    /*
-                                     * Ở bản demo hiện tại:
-                                     * Nếu một ô có nhiều lịch cùng thời điểm thì đánh dấu conflict.
-                                     * Đây là dấu hiệu cảnh báo trực quan, chưa thay thế kiểm tra xung đột chính thức.
-                                     */
-                                    $hasConflict = count($cellMeetings) > 1;
-                                @endphp
+                            @if($isStart)
+                                <div class="meeting-card {{ $hasConflict ? 'conflict' : '' }}">
+                                    <div class="section-code">{{ $meeting->section?->section_code }}</div>
+                                    <div class="subject-name">{{ $meeting->section?->subject?->name ?? 'Không rõ học phần' }}</div>
+                                    <div>Tiết {{ $meeting->start_period }}-{{ $displayEndPeriod }}</div>
 
-                                @if($isStart)
-                                    <div class="meeting-card {{ $hasConflict ? 'conflict' : '' }}">
-                                        <div class="section-code">
-                                            {{ $meeting->section?->section_code }}
+                                    @if($meeting->section && $meeting->section->lecturers->count() > 0)
+                                        <div class="lecturer">
+                                            GV: {{ $meeting->section->lecturers->pluck('name')->join(', ') }}
                                         </div>
+                                    @endif
 
-                                        <div class="subject-name">
-                                            {{ $meeting->section?->subject?->name ?? 'Không rõ học phần' }}
-                                        </div>
-
-                                        <div>
-                                            Tiết {{ $meeting->start_period }}-{{ $displayEndPeriod }}
-                                        </div>
-
-                                        @if($meeting->section && $meeting->section->lecturers->count() > 0)
-                                            <div class="lecturer">
-                                                GV:
-                                                {{ $meeting->section->lecturers->pluck('name')->join(', ') }}
-                                            </div>
-                                        @endif
-
-                                        @if($meeting->room)
-                                            <div class="room">
-                                                Phòng: {{ $meeting->room->name }}
-                                            </div>
-                                        @endif
-                                    </div>
-                                @else
-                                    <div class="meeting-card continuing {{ $hasConflict ? 'conflict' : '' }}">
-                                        {{ $meeting->section?->section_code }} tiếp tục
-                                    </div>
-                                @endif
-                            @endforeach
-                        @else
-                            <div class="timetable-empty">—</div>
-                        @endif
+                                    @if($meeting->room)
+                                        <div class="room">Phòng: {{ $meeting->room->name }}</div>
+                                    @endif
+                                </div>
+                            @else
+                                <div class="meeting-card continuing {{ $hasConflict ? 'conflict' : '' }}">
+                                    {{ $meeting->section?->section_code }} tiếp tục
+                                </div>
+                            @endif
+                        @empty
+                            <div class="timetable-empty">-</div>
+                        @endforelse
                     </td>
-                @endfor
+                @endforeach
             </tr>
         @endforeach
         </tbody>
@@ -129,7 +104,6 @@
 
     <div class="note" style="margin-top: 16px;">
         <strong>Ghi chú:</strong>
-        Các ô màu xanh là lịch học bình thường. Các ô màu đỏ là ô có nhiều lịch cùng thời điểm khi xem toàn bộ dữ liệu.
-        Đây chỉ là dấu hiệu cảnh báo trực quan, chưa thay thế kiểm tra xung đột chính thức.
+        Bảng hiển thị theo thứ và số tiết. Với lịch IS, buổi sáng là tiết 1-6 và buổi chiều là tiết 7-12.
     </div>
 @endsection

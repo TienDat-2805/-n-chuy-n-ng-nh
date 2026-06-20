@@ -58,14 +58,14 @@ class TimetableController extends Controller
         $grid = [];
 
         foreach ($periods as $period) {
-            for ($day = 2; $day <= 6; $day++) {
+            for ($day = 2; $day <= 7; $day++) {
                 $grid[$period][$day] = [];
             }
         }
 
         foreach ($meetings as $meeting) {
             for ($period = $meeting->start_period; $period <= $meeting->end_period; $period++) {
-                if ($period >= 1 && $period <= $maxPeriod && $meeting->day_of_week >= 2 && $meeting->day_of_week <= 6) {
+                if ($period >= 1 && $period <= $maxPeriod && $meeting->day_of_week >= 2 && $meeting->day_of_week <= 7) {
                     $grid[$period][$meeting->day_of_week][] = $meeting;
                 }
             }
