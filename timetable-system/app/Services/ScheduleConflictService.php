@@ -3,6 +3,7 @@
 namespace App\Services;
 
 use App\Models\ScheduleConflict;
+use App\Models\Room;
 use App\Models\SectionMeeting;
 use Illuminate\Support\Collection;
 
@@ -103,6 +104,7 @@ class ScheduleConflictService
 
         $created = 0;
         $buckets = [];
+        $validMeetings = collect();
 
         foreach ($meetings as $meeting) {
             if (! $this->isAllowedMeeting($meeting)) {
@@ -153,6 +155,12 @@ class ScheduleConflictService
             for ($period = (int) $meeting->start_period; $period <= (int) $meeting->end_period; $period++) {
                 $buckets[(int) $meeting->day_of_week][$period][] = $meeting;
             }
+
+            $validMeetings->push($meeting);
+        }
+
+        if ($this->detectLecturerCampusConflicts($validMeetings, $limit, $created)) {
+            return $created;
         }
 
         $checkedPairs = [];
@@ -211,6 +219,60 @@ class ScheduleConflictService
         return $created;
     }
 
+    private function detectLecturerCampusConflicts(Collection $meetings, int $limit, int &$created): bool
+    {
+        $groups = [];
+
+        foreach ($meetings as $meeting) {
+            $meeting->loadMissing(['section.lecturers', 'room']);
+            $campus = $this->campusForMeeting($meeting);
+
+            if (! $campus) {
+                continue;
+            }
+
+            $day = (int) $meeting->day_of_week;
+
+            foreach ($meeting->section?->lecturers ?? collect() as $lecturer) {
+                $groups[$lecturer->id][$day][$campus] ??= [
+                    'lecturer' => $lecturer,
+                    'meeting' => $meeting,
+                ];
+            }
+        }
+
+        foreach ($groups as $dayGroups) {
+            foreach ($dayGroups as $day => $campusGroups) {
+                if (count($campusGroups) < 2) {
+                    continue;
+                }
+
+                $campuses = array_keys($campusGroups);
+
+                for ($i = 0; $i < count($campuses) - 1; $i++) {
+                    for ($j = $i + 1; $j < count($campuses); $j++) {
+                        $first = $campusGroups[$campuses[$i]];
+                        $second = $campusGroups[$campuses[$j]];
+                        $lecturerName = $first['lecturer']->name ?? 'Giảng viên';
+
+                        $created += $this->createConflict(
+                            'lecturer_campus_conflict',
+                            $first['meeting'],
+                            $second['meeting'],
+                            "Giảng viên {$lecturerName} dạy nhiều cơ sở trong cùng {$this->dayLabel((int) $day)}: {$campuses[$i]} và {$campuses[$j]}. Nên ưu tiên một giảng viên chỉ dạy tại một cơ sở trong một ngày để giảm di chuyển."
+                        );
+
+                        if ($created >= $limit) {
+                            return true;
+                        }
+                    }
+                }
+            }
+        }
+
+        return false;
+    }
+
     public function suggestions(ScheduleConflict $conflict, int $limit = 5): array
     {
         $meeting = $conflict->meeting;
@@ -263,6 +325,167 @@ class ScheduleConflictService
         return array_slice($candidates, 0, $limit);
     }
 
+    public function adjustmentSuggestions(ScheduleConflict $conflict, int $limit = 4): array
+    {
+        $meeting = $conflict->meeting;
+
+        return $meeting ? $this->adjustmentSuggestionsForMeeting($conflict, $meeting, $limit) : [];
+    }
+
+    public function adjustmentSuggestionsForMeeting(ScheduleConflict $conflict, SectionMeeting $meeting, int $limit = 4): array
+    {
+        $other = $this->otherConflictMeeting($conflict, $meeting);
+
+        if (! $meeting || ! $meeting->start_period || ! $meeting->end_period) {
+            return [];
+        }
+
+        $meeting->loadMissing(['section.subject', 'section.lecturers', 'room']);
+        $other?->loadMissing(['section.lecturers', 'room']);
+
+        $duration = (int) $meeting->end_period - (int) $meeting->start_period + 1;
+        if ($duration <= 0 || $duration > self::MAX_PERIOD_PER_DAY) {
+            return [];
+        }
+
+        $suggestions = collect()
+            ->merge($this->changeDaySuggestions($meeting, $duration))
+            ->merge($this->sameCampusRoomSuggestions($conflict, $meeting, $other, $duration))
+            ->unique(fn (array $item) => implode(':', [
+                $item['day_of_week'],
+                $item['start_period'],
+                $item['end_period'],
+                $item['room_id'] ?? 0,
+            ]))
+            ->sortBy('score')
+            ->values()
+            ->take($limit)
+            ->all();
+
+        return array_values($suggestions);
+    }
+
+    private function changeDaySuggestions(SectionMeeting $meeting, int $duration): array
+    {
+        $roomIds = $this->candidateRoomIdsForMeeting($meeting);
+        $suggestions = [];
+        $starts = collect([(int) $meeting->start_period])
+            ->merge(range(1, self::MAX_PERIOD_PER_DAY - $duration + 1))
+            ->unique()
+            ->values();
+
+        foreach (self::ALLOWED_DAYS as $day) {
+            if ($day === (int) $meeting->day_of_week) {
+                continue;
+            }
+
+            foreach ($starts as $start) {
+                $end = $start + $duration - 1;
+
+                foreach ($roomIds as $roomId) {
+                    if (! $this->isSlotAvailable($meeting, $day, $start, $end, $roomId)) {
+                        continue;
+                    }
+
+                    $room = Room::query()->find($roomId);
+                    $samePeriodBonus = $start === (int) $meeting->start_period ? 0 : 12;
+
+                    $suggestions[] = [
+                        'kind' => 'change_day',
+                        'title' => 'Chuyển sang ngày khác',
+                        'label' => $this->dayLabel($day) . ", tiết {$start}-{$end}",
+                        'hint' => $room ? "Phòng {$room->name}" : 'Giữ phòng hiện tại',
+                        'day_of_week' => $day,
+                        'start_period' => $start,
+                        'end_period' => $end,
+                        'room_id' => $roomId,
+                        'room_name' => $room?->name,
+                        'score' => $this->scoreCandidate($meeting, $day, $start) + $samePeriodBonus,
+                    ];
+
+                    if (count($suggestions) >= 8) {
+                        return $suggestions;
+                    }
+                }
+            }
+        }
+
+        return $suggestions;
+    }
+
+    private function sameCampusRoomSuggestions(ScheduleConflict $conflict, SectionMeeting $meeting, ?SectionMeeting $other, int $duration): array
+    {
+        $day = (int) $meeting->day_of_week;
+        $start = (int) $meeting->start_period;
+        $end = $start + $duration - 1;
+        $targetCampus = $this->targetCampusForRoomSuggestion($conflict, $meeting, $other);
+
+        if (! $targetCampus) {
+            return [];
+        }
+
+        $preferredRoomIds = $this->preferredRoomIdsForDay($meeting, $targetCampus);
+        $rooms = Room::query()
+            ->whereIn('type', ['room', 'lab'])
+            ->where('campus', $targetCampus)
+            ->orderBy('name')
+            ->get()
+            ->filter(fn (Room $room) => $this->isRoomAllowedForMeeting($meeting, $room))
+            ->sort(function (Room $a, Room $b) use ($preferredRoomIds) {
+                $aPreferred = array_search($a->id, $preferredRoomIds, true);
+                $bPreferred = array_search($b->id, $preferredRoomIds, true);
+
+                return [
+                    $aPreferred === false ? 1 : 0,
+                    $aPreferred === false ? 999 : $aPreferred,
+                    $a->name,
+                ] <=> [
+                    $bPreferred === false ? 1 : 0,
+                    $bPreferred === false ? 999 : $bPreferred,
+                    $b->name,
+                ];
+            })
+            ->values();
+
+        $suggestions = [];
+
+        foreach ($rooms as $room) {
+            if ((int) $room->id === (int) $meeting->room_id) {
+                continue;
+            }
+
+            if (! $this->isSlotAvailable($meeting, $day, $start, $end, $room->id)) {
+                continue;
+            }
+
+            $isPreferred = in_array($room->id, $preferredRoomIds, true);
+            $title = $conflict->type === 'lecturer_campus_conflict'
+                ? 'Chuyển về cùng cơ sở'
+                : 'Đổi phòng cùng cơ sở';
+
+            $suggestions[] = [
+                'kind' => 'same_campus_room',
+                'title' => $title,
+                'label' => "{$this->dayLabel($day)}, tiết {$start}-{$end}",
+                'hint' => $isPreferred
+                    ? "Ưu tiên phòng đã dùng trước đó: {$room->name}"
+                    : "Phòng trống tại {$targetCampus}: {$room->name}",
+                'day_of_week' => $day,
+                'start_period' => $start,
+                'end_period' => $end,
+                'room_id' => $room->id,
+                'room_name' => $room->name,
+                'score' => $isPreferred ? 0 : 18,
+            ];
+
+            if (count($suggestions) >= 5) {
+                break;
+            }
+        }
+
+        return $suggestions;
+    }
+
     public function applySuggestion(ScheduleConflict $conflict, array $data): bool
     {
         $meeting = $conflict->meeting;
@@ -274,12 +497,15 @@ class ScheduleConflictService
         $day = (int) ($data['day_of_week'] ?? 0);
         $start = (int) ($data['start_period'] ?? 0);
         $end = (int) ($data['end_period'] ?? 0);
+        $roomId = isset($data['room_id']) && $data['room_id'] !== null && $data['room_id'] !== ''
+            ? (int) $data['room_id']
+            : $meeting->room_id;
 
         if (! in_array($day, self::ALLOWED_DAYS, true) || $start < 1 || $end < $start || $end > self::MAX_PERIOD_PER_DAY) {
             return false;
         }
 
-        if (! $this->isSlotAvailable($meeting, $day, $start, $end)) {
+        if (! $this->isSlotAvailable($meeting, $day, $start, $end, $roomId)) {
             return false;
         }
 
@@ -287,8 +513,40 @@ class ScheduleConflictService
             'day_of_week' => $day,
             'start_period' => $start,
             'end_period' => $end,
+            'room_id' => $roomId,
         ]);
 
+        $this->availabilityMeetings = null;
+        $this->detect();
+
+        return true;
+    }
+
+    public function applyMeetingSuggestion(SectionMeeting $meeting, array $data): bool
+    {
+        $day = (int) ($data['day_of_week'] ?? 0);
+        $start = (int) ($data['start_period'] ?? 0);
+        $end = (int) ($data['end_period'] ?? 0);
+        $roomId = isset($data['room_id']) && $data['room_id'] !== null && $data['room_id'] !== ''
+            ? (int) $data['room_id']
+            : $meeting->room_id;
+
+        if (! in_array($day, self::ALLOWED_DAYS, true) || $start < 1 || $end < $start || $end > self::MAX_PERIOD_PER_DAY) {
+            return false;
+        }
+
+        if (! $this->isSlotAvailable($meeting, $day, $start, $end, $roomId)) {
+            return false;
+        }
+
+        $meeting->update([
+            'day_of_week' => $day,
+            'start_period' => $start,
+            'end_period' => $end,
+            'room_id' => $roomId,
+        ]);
+
+        $this->availabilityMeetings = null;
         $this->detect();
 
         return true;
@@ -341,12 +599,21 @@ class ScheduleConflictService
         ];
     }
 
-    public function isSlotAvailable(SectionMeeting $meeting, int $day, int $start, int $end): bool
+    public function isSlotAvailable(SectionMeeting $meeting, int $day, int $start, int $end, ?int $roomId = null): bool
     {
-        $meeting->loadMissing('section.lecturers');
+        $meeting->loadMissing(['section.lecturers', 'room']);
         $lecturerIds = $meeting->section?->lecturers?->pluck('id')->all() ?? [];
+        $candidateRoomId = $roomId ?: $meeting->room_id;
 
         if (! $this->areLecturersAvailableAt($meeting->section?->lecturers ?? collect(), $day, $start, $end)) {
+            return false;
+        }
+
+        if ($candidateRoomId && ! $this->isCandidateRoomAllowed($meeting, $candidateRoomId)) {
+            return false;
+        }
+
+        if (! $this->respectsLecturerCampusDay($meeting, $day, $candidateRoomId)) {
             return false;
         }
 
@@ -368,12 +635,153 @@ class ScheduleConflictService
                 return false;
             }
 
-            if ($this->isSameCheckableRoom($meeting, $other)) {
+            if ($candidateRoomId && $this->isSameCandidateRoom($candidateRoomId, $other)) {
                 return false;
             }
         }
 
         return true;
+    }
+
+    private function candidateRoomIdsForMeeting(SectionMeeting $meeting): array
+    {
+        $meeting->loadMissing('room');
+        $campus = $meeting->room?->campus;
+        $roomIds = collect([$meeting->room_id])->filter()->values();
+
+        if ($campus) {
+            $sameCampusRooms = Room::query()
+                ->whereIn('type', ['room', 'lab'])
+                ->where('campus', $campus)
+                ->orderBy('name')
+                ->get()
+                ->filter(fn (Room $room) => $this->isRoomAllowedForMeeting($meeting, $room))
+                ->pluck('id');
+
+            $roomIds = $roomIds->merge($sameCampusRooms);
+        }
+
+        return $roomIds->unique()->values()->all();
+    }
+
+    private function targetCampusForRoomSuggestion(ScheduleConflict $conflict, SectionMeeting $meeting, ?SectionMeeting $other): ?string
+    {
+        if ($conflict->type === 'lecturer_campus_conflict' && $other?->room?->campus) {
+            return $other->room->campus;
+        }
+
+        return $meeting?->room?->campus;
+    }
+
+    private function otherConflictMeeting(ScheduleConflict $conflict, SectionMeeting $meeting): ?SectionMeeting
+    {
+        $conflict->loadMissing(['meeting', 'conflictMeeting']);
+
+        if ($conflict->meeting && (int) $conflict->meeting->id !== (int) $meeting->id) {
+            return $conflict->meeting;
+        }
+
+        if ($conflict->conflictMeeting && (int) $conflict->conflictMeeting->id !== (int) $meeting->id) {
+            return $conflict->conflictMeeting;
+        }
+
+        return null;
+    }
+
+    private function preferredRoomIdsForDay(SectionMeeting $meeting, string $targetCampus): array
+    {
+        $meeting->loadMissing('section.lecturers');
+        $lecturerIds = $meeting->section?->lecturers?->pluck('id')->all() ?? [];
+
+        if (! $lecturerIds) {
+            return [];
+        }
+
+        return $this->availabilityMeetings()
+            ->filter(function (SectionMeeting $other) use ($meeting, $lecturerIds, $targetCampus) {
+                $otherLecturerIds = $other->section?->lecturers?->pluck('id')->all() ?? [];
+
+                return $other->id !== $meeting->id
+                    && (int) $other->day_of_week === (int) $meeting->day_of_week
+                    && (int) $other->end_period < (int) $meeting->start_period
+                    && $other->room
+                    && $other->room->campus === $targetCampus
+                    && array_intersect($lecturerIds, $otherLecturerIds);
+            })
+            ->sortByDesc('end_period')
+            ->pluck('room_id')
+            ->filter()
+            ->unique()
+            ->values()
+            ->all();
+    }
+
+    private function isCandidateRoomAllowed(SectionMeeting $meeting, int $roomId): bool
+    {
+        $room = Room::query()->find($roomId);
+
+        return $room ? $this->isRoomAllowedForMeeting($meeting, $room) : false;
+    }
+
+    private function isRoomAllowedForMeeting(SectionMeeting $meeting, Room $room): bool
+    {
+        if (! in_array($room->type, ['room', 'lab'], true)) {
+            return false;
+        }
+
+        $isPhysicalEducation = $this->isPhysicalEducationMeeting($meeting);
+        $isSportRoom = $this->isSportRoomText($room->name, $room->type, $room->campus);
+
+        return $isPhysicalEducation ? $isSportRoom : ! $isSportRoom;
+    }
+
+    private function respectsLecturerCampusDay(SectionMeeting $meeting, int $day, ?int $roomId): bool
+    {
+        if (! $roomId) {
+            return true;
+        }
+
+        $room = Room::query()->find($roomId);
+        $candidateCampus = trim((string) $room?->campus);
+
+        if ($candidateCampus === '') {
+            return true;
+        }
+
+        $meeting->loadMissing('section.lecturers');
+        $lecturerIds = $meeting->section?->lecturers?->pluck('id')->all() ?? [];
+
+        if (! $lecturerIds) {
+            return true;
+        }
+
+        foreach ($this->availabilityMeetings() as $other) {
+            if ($other->id === $meeting->id || (int) $other->day_of_week !== $day || ! $other->room?->campus) {
+                continue;
+            }
+
+            $otherLecturerIds = $other->section?->lecturers?->pluck('id')->all() ?? [];
+            if (! array_intersect($lecturerIds, $otherLecturerIds)) {
+                continue;
+            }
+
+            if ($other->room->campus !== $candidateCampus) {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    private function isSameCandidateRoom(int $candidateRoomId, SectionMeeting $other): bool
+    {
+        $other->loadMissing('room');
+
+        if (! $other->room_id || ! $other->room || ! in_array($other->room->type, ['room', 'lab'], true)) {
+            return false;
+        }
+
+        return (int) $other->room_id === $candidateRoomId;
     }
 
     private function lecturerAvailabilityMessages(SectionMeeting $meeting): array
@@ -436,10 +844,19 @@ class ScheduleConflictService
 
     private function isSportRoom(SectionMeeting $meeting): bool
     {
-        $text = $this->normalize(implode(' ', array_filter([
+        return $this->isSportRoomText(
             $meeting->room?->name,
             $meeting->room?->type,
-            $meeting->room?->campus,
+            $meeting->room?->campus
+        );
+    }
+
+    private function isSportRoomText(?string $name, ?string $type, ?string $campus): bool
+    {
+        $text = $this->normalize(implode(' ', array_filter([
+            $name,
+            $type,
+            $campus,
         ])));
 
         return str_contains($text, 'san')
@@ -580,6 +997,17 @@ class ScheduleConflictService
         }
 
         return in_array($meeting->room->type, ['room', 'lab'], true);
+    }
+
+    private function campusForMeeting(SectionMeeting $meeting): ?string
+    {
+        if (! $this->hasCheckableRoom($meeting)) {
+            return null;
+        }
+
+        $campus = trim((string) $meeting->room?->campus);
+
+        return $campus !== '' ? $campus : null;
     }
 
     private function isOnlineMeeting(SectionMeeting $meeting): bool

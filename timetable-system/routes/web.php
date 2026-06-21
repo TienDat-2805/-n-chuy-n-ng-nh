@@ -50,6 +50,7 @@ Route::middleware('auth')->group(function () {
     Route::get('/timetable', [TimetableController::class, 'index'])->name('timetable.index');
 
     Route::get('/conflicts', [ConflictController::class, 'index'])->name('conflicts.index');
+    Route::post('/conflicts/suggestions', [ConflictController::class, 'suggestions'])->name('conflicts.suggestions');
     Route::post('/conflicts/check', [ConflictController::class, 'check'])->name('conflicts.check');
     Route::post('/conflicts/auto-schedule', [ConflictController::class, 'autoSchedule'])->name('conflicts.auto-schedule');
     Route::post('/conflicts/apply', [ConflictController::class, 'apply'])->name('conflicts.apply');

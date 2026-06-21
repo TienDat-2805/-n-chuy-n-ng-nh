@@ -65,9 +65,6 @@ class ImportController extends Controller
             ->whereNotNull('start_period')
             ->whereNotNull('end_period')
             ->whereBetween('day_of_week', [2, 7])
-            ->when($conflictMeetingIds, function ($query) use ($conflictMeetingIds) {
-                $query->whereNotIn('id', $conflictMeetingIds);
-            })
             ->when($selectedCampus !== 'all', function ($query) use ($selectedCampus) {
                 $query->whereHas('room', fn ($roomQuery) => $roomQuery->where('campus', $selectedCampus));
             })
@@ -202,9 +199,6 @@ class ImportController extends Controller
             ->whereNotNull('start_period')
             ->whereNotNull('end_period')
             ->whereBetween('day_of_week', [2, 7])
-            ->when($conflictMeetingIds, function ($query) use ($conflictMeetingIds) {
-                $query->whereNotIn('id', $conflictMeetingIds);
-            })
             ->when($selectedCampus !== 'all', function ($query) use ($selectedCampus) {
                 $query->whereHas('room', fn ($roomQuery) => $roomQuery->where('campus', $selectedCampus));
             })

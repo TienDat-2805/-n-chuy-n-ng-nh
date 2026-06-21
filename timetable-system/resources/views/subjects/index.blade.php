@@ -64,7 +64,7 @@
                 <details class="subject-add-lecturer" {{ $subjectLecturers->isEmpty() ? 'open' : '' }}>
                     <summary>Thêm giảng viên cho môn học</summary>
 
-                    <form action="{{ route('subjects.lecturers.attach', $subject) }}" method="POST">
+                    <form action="{{ route('subjects.lecturers.attach', $subject) }}" method="POST" data-async-attach-lecturer>
                         @csrf
                         <input type="hidden" name="keyword" value="{{ $keyword }}">
                         <input type="hidden" name="page" value="{{ $subjects->currentPage() }}">
@@ -72,6 +72,7 @@
                         <input type="text" name="name" placeholder="Tên giảng viên" required>
                         <input type="email" name="email" placeholder="Email nếu có">
                         <button class="btn" type="submit">Thêm giảng viên</button>
+                        <span class="async-form-status" data-async-status aria-live="polite"></span>
                     </form>
 
                     <small>
@@ -171,6 +172,60 @@
     @endif
 
     <script>
+        document.querySelectorAll('[data-async-attach-lecturer]').forEach((form) => {
+            const button = form.querySelector('button[type="submit"]');
+            const status = form.querySelector('[data-async-status]');
+
+            form.addEventListener('submit', async (event) => {
+                event.preventDefault();
+
+                if (button) {
+                    button.disabled = true;
+                    button.textContent = 'Đang thêm...';
+                }
+
+                if (status) {
+                    status.textContent = 'Đang xử lý ở backend.';
+                    status.dataset.state = 'saving';
+                }
+
+                try {
+                    const response = await fetch(form.action, {
+                        method: 'POST',
+                        body: new FormData(form),
+                        headers: {
+                            'Accept': 'application/json',
+                            'X-Requested-With': 'XMLHttpRequest',
+                        },
+                    });
+                    const data = await response.json().catch(() => ({}));
+
+                    if (!response.ok || data.ok === false) {
+                        throw new Error(data.message || 'Không thể thêm giảng viên.');
+                    }
+
+                    if (status) {
+                        status.textContent = data.message || 'Đã thêm giảng viên.';
+                        status.dataset.state = 'saved';
+                    }
+
+                    window.setTimeout(() => {
+                        window.location.reload();
+                    }, 900);
+                } catch (error) {
+                    if (status) {
+                        status.textContent = error.message || 'Không thể thêm giảng viên.';
+                        status.dataset.state = 'error';
+                    }
+
+                    if (button) {
+                        button.disabled = false;
+                        button.textContent = 'Thêm giảng viên';
+                    }
+                }
+            });
+        });
+
         document.querySelectorAll('.subject-lecturer-card').forEach((card) => {
             const select = card.querySelector('.availability-mode-select');
             const panel = card.querySelector('.availability-limited-panel');

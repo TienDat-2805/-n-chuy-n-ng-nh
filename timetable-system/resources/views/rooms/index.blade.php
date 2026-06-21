@@ -14,7 +14,7 @@
             </p>
         </div>
 
-        <form class="room-create-form" action="{{ route('rooms.store') }}" method="POST">
+        <form class="room-create-form" action="{{ route('rooms.store') }}" method="POST" data-async-room-form>
             @csrf
             <input type="text" name="name" placeholder="Tên phòng" required>
             <select name="campus" required>
@@ -23,6 +23,7 @@
                 @endforeach
             </select>
             <button class="btn" type="submit">Thêm phòng</button>
+            <span class="async-form-status" data-async-status aria-live="polite"></span>
         </form>
     </section>
 
@@ -91,7 +92,7 @@
                 <details class="room-edit-panel">
                     <summary>Sửa thông tin</summary>
 
-                    <form action="{{ route('rooms.update', $room) }}" method="POST">
+                    <form action="{{ route('rooms.update', $room) }}" method="POST" data-async-room-form>
                         @csrf
                         @method('PUT')
 
@@ -105,14 +106,16 @@
                         </div>
 
                         <button class="btn btn-green room-update-button" type="submit">Cập nhật phòng</button>
+                        <span class="async-form-status" data-async-status aria-live="polite"></span>
                     </form>
                 </details>
 
                 @if($room->meetings_count === 0)
-                    <form class="inline-delete" action="{{ route('rooms.destroy', $room) }}" method="POST">
+                    <form class="inline-delete" action="{{ route('rooms.destroy', $room) }}" method="POST" data-async-room-form data-confirm-message="Xóa phòng học này?">
                         @csrf
                         @method('DELETE')
-                        <button type="submit" onclick="return confirm('Xóa phòng học này?')">Xóa phòng</button>
+                        <button type="submit">Xóa phòng</button>
+                        <span class="async-form-status" data-async-status aria-live="polite"></span>
                     </form>
                 @else
                     <div class="room-locked-note">Phòng đang được dùng trong thời khóa biểu nên không thể xóa.</div>
@@ -123,3 +126,78 @@
         @endforelse
     </section>
 @endsection
+
+@push('scripts')
+    <script>
+        document.addEventListener('DOMContentLoaded', () => {
+            document.querySelectorAll('[data-async-room-form]').forEach((form) => {
+                const button = form.querySelector('button[type="submit"]');
+                const status = form.querySelector('[data-async-status]');
+                const defaultButtonText = button ? button.textContent : '';
+
+                form.addEventListener('submit', async (event) => {
+                    event.preventDefault();
+
+                    const confirmMessage = form.dataset.confirmMessage;
+                    if (confirmMessage && !window.confirm(confirmMessage)) {
+                        return;
+                    }
+
+                    if (button) {
+                        button.disabled = true;
+                        button.textContent = 'Đang xử lý...';
+                    }
+
+                    if (status) {
+                        status.textContent = 'Đang xử lý ở backend.';
+                        status.dataset.state = 'saving';
+                    }
+
+                    try {
+                        const response = await fetch(form.action, {
+                            method: 'POST',
+                            body: new FormData(form),
+                            headers: {
+                                'Accept': 'application/json',
+                                'X-Requested-With': 'XMLHttpRequest',
+                            },
+                        });
+                        const data = await response.json().catch(() => ({}));
+
+                        if (!response.ok || data.ok === false) {
+                            throw new Error(data.message || 'Không thể xử lý phòng học.');
+                        }
+
+                        if (status) {
+                            status.textContent = data.message || 'Đã xử lý phòng học.';
+                            status.dataset.state = 'saved';
+                        }
+
+                        window.setTimeout(() => {
+                            const url = data.campus
+                                ? new URL(window.location.href)
+                                : null;
+
+                            if (url) {
+                                url.searchParams.set('campus', data.campus);
+                                window.location.href = url.toString();
+                            } else {
+                                window.location.reload();
+                            }
+                        }, 800);
+                    } catch (error) {
+                        if (status) {
+                            status.textContent = error.message || 'Không thể xử lý phòng học.';
+                            status.dataset.state = 'error';
+                        }
+
+                        if (button) {
+                            button.disabled = false;
+                            button.textContent = defaultButtonText;
+                        }
+                    }
+                });
+            });
+        });
+    </script>
+@endpush

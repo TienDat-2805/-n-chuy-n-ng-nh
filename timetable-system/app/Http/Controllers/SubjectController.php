@@ -134,6 +134,13 @@ class SubjectController extends Controller
         $subject->load('sections:id,subject_id,section_code');
 
         if ($subject->sections->isEmpty()) {
+            if ($request->expectsJson()) {
+                return response()->json([
+                    'ok' => false,
+                    'message' => 'Môn học này chưa có lớp học phần nên chưa thể gắn giảng viên.',
+                ], 422);
+            }
+
             return redirect()
                 ->route('subjects.index', $request->only('keyword', 'page'))
                 ->with('error', 'Môn học này chưa có lớp học phần nên chưa thể gắn giảng viên.');
@@ -178,6 +185,14 @@ class SubjectController extends Controller
         $message = $attached > 0
             ? "Đã gắn giảng viên {$name} vào {$attached} lớp học phần của môn {$subject->subject_code}."
             : "Giảng viên {$name} đã có trong môn {$subject->subject_code}.";
+
+        if ($request->expectsJson()) {
+            return response()->json([
+                'ok' => true,
+                'message' => $message,
+                'attached' => $attached,
+            ]);
+        }
 
         return redirect()
             ->route('subjects.index', $request->only('keyword', 'page'))

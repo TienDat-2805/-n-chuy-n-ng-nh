@@ -72,6 +72,14 @@ class RoomController extends Controller
             'campus' => $data['campus'],
         ]);
 
+        if ($request->expectsJson()) {
+            return response()->json([
+                'ok' => true,
+                'message' => 'Đã thêm phòng học.',
+                'campus' => $data['campus'],
+            ]);
+        }
+
         return redirect()
             ->route('rooms.index', ['campus' => $data['campus']])
             ->with('success', 'Đã thêm phòng học.');
@@ -86,14 +94,29 @@ class RoomController extends Controller
 
         $room->update($data);
 
+        if ($request->expectsJson()) {
+            return response()->json([
+                'ok' => true,
+                'message' => 'Đã cập nhật phòng học.',
+                'campus' => $data['campus'],
+            ]);
+        }
+
         return redirect()
             ->route('rooms.index', ['campus' => $data['campus']])
             ->with('success', 'Đã cập nhật phòng học.');
     }
 
-    public function destroy(Room $room)
+    public function destroy(Request $request, Room $room)
     {
         if ($room->meetings()->exists()) {
+            if ($request->expectsJson()) {
+                return response()->json([
+                    'ok' => false,
+                    'message' => 'Không thể xóa phòng đang có lịch học.',
+                ], 422);
+            }
+
             return redirect()
                 ->route('rooms.index', ['campus' => $room->campus])
                 ->with('error', 'Không thể xóa phòng đang có lịch học.');
@@ -101,6 +124,14 @@ class RoomController extends Controller
 
         $campus = $room->campus;
         $room->delete();
+
+        if ($request->expectsJson()) {
+            return response()->json([
+                'ok' => true,
+                'message' => 'Đã xóa phòng học.',
+                'campus' => $campus,
+            ]);
+        }
 
         return redirect()
             ->route('rooms.index', ['campus' => $campus])

@@ -4,10 +4,11 @@ namespace App\Http\Controllers;
 
 use App\Services\ScheduleConflictService;
 use App\Services\TimetableSchedulerService;
+use Illuminate\Http\Request;
 
 class ScheduleController extends Controller
 {
-    public function generate(TimetableSchedulerService $scheduler, ScheduleConflictService $conflictService)
+    public function generate(Request $request, TimetableSchedulerService $scheduler, ScheduleConflictService $conflictService)
     {
         $result = $scheduler->generate();
         $conflicts = $conflictService->detect();
@@ -24,6 +25,15 @@ class ScheduleController extends Controller
 
         if ($conflicts > 0) {
             $message .= " Hệ thống phát hiện {$conflicts} xung đột cần kiểm tra.";
+        }
+
+        if ($request->expectsJson()) {
+            return response()->json([
+                'ok' => $result['unscheduled'] === 0 && $conflicts === 0,
+                'message' => $message,
+                'result' => $result,
+                'conflicts' => $conflicts,
+            ]);
         }
 
         return redirect()

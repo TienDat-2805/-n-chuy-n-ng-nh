@@ -47,12 +47,13 @@
                 <small>Môn chưa gắn giảng viên hợp lệ</small>
             </div>
 
-            <form class="tool-card action-tool" action="{{ route('schedule.generate') }}" method="POST">
+            <form class="tool-card action-tool" action="{{ route('schedule.generate') }}" method="POST" data-async-schedule-form>
                 @csrf
                 <span>Xử lý lịch</span>
                 <strong>Xếp lịch</strong>
                 <small>Dựa trên ngày/buổi giảng viên có thể dạy và danh sách phòng học.</small>
                 <button class="btn btn-green" type="submit">Tạo thời khóa biểu</button>
+                <span class="async-form-status" data-async-status aria-live="polite"></span>
             </form>
         </div>
     </section>
@@ -157,3 +158,67 @@
         </table>
     </section>
 @endsection
+
+@push('scripts')
+    <script>
+        document.addEventListener('DOMContentLoaded', () => {
+            const form = document.querySelector('[data-async-schedule-form]');
+
+            if (!form) {
+                return;
+            }
+
+            const button = form.querySelector('button[type="submit"]');
+            const status = form.querySelector('[data-async-status]');
+
+            form.addEventListener('submit', async (event) => {
+                event.preventDefault();
+
+                if (button) {
+                    button.disabled = true;
+                    button.textContent = 'Đang xếp lịch...';
+                }
+
+                if (status) {
+                    status.textContent = 'Đang xếp lịch...';
+                    status.dataset.state = 'saving';
+                }
+
+                try {
+                    const response = await fetch(form.action, {
+                        method: 'POST',
+                        body: new FormData(form),
+                        headers: {
+                            'Accept': 'application/json',
+                            'X-Requested-With': 'XMLHttpRequest',
+                        },
+                    });
+                    const data = await response.json().catch(() => ({}));
+
+                    if (!response.ok) {
+                        throw new Error(data.message || 'Không thể tạo thời khóa biểu.');
+                    }
+
+                    if (status) {
+                        status.textContent = data.message || 'Đã tạo thời khóa biểu.';
+                        status.dataset.state = data.ok ? 'saved' : 'warning';
+                    }
+
+                    window.setTimeout(() => {
+                        window.location.reload();
+                    }, 1200);
+                } catch (error) {
+                    if (status) {
+                        status.textContent = error.message || 'Không thể tạo thời khóa biểu.';
+                        status.dataset.state = 'error';
+                    }
+
+                    if (button) {
+                        button.disabled = false;
+                        button.textContent = 'Tạo thời khóa biểu';
+                    }
+                }
+            });
+        });
+    </script>
+@endpush

@@ -43,6 +43,10 @@
                 <span class="nav-icon">P</span>
                 Phòng học
             </a>
+            <a class="{{ request()->routeIs('conflicts.*') ? 'active' : '' }}" href="{{ route('conflicts.index') }}">
+                <span class="nav-icon">KT</span>
+                Kiểm tra lịch
+            </a>
         </nav>
     </aside>
 
@@ -58,6 +62,7 @@
             <a class="{{ request()->routeIs('imports.*') ? 'active' : '' }}" href="{{ route('imports.index') }}">Nhập & xếp lịch</a>
             <a class="{{ request()->routeIs('subjects.*') ? 'active' : '' }}" href="{{ route('subjects.index') }}">Môn học</a>
             <a class="{{ request()->routeIs('rooms.*') ? 'active' : '' }}" href="{{ route('rooms.index') }}">Phòng học</a>
+            <a class="{{ request()->routeIs('conflicts.*') ? 'active' : '' }}" href="{{ route('conflicts.index') }}">Kiểm tra lịch</a>
         </div>
 
         <div class="container @yield('container_class')">
@@ -69,5 +74,6 @@
 @else
     @yield('content')
 @endauth
+@stack('scripts')
 </body>
 </html>
