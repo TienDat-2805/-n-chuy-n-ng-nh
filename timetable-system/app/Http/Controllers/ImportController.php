@@ -59,6 +59,7 @@ class ImportController extends Controller
             ->with([
                 'section.subject',
                 'section.lecturers',
+                'lecturer',
                 'room',
             ])
             ->whereNotNull('day_of_week')
@@ -193,6 +194,7 @@ class ImportController extends Controller
             ->with([
                 'section.subject',
                 'section.lecturers',
+                'lecturer',
                 'room',
             ])
             ->whereNotNull('day_of_week')
@@ -264,19 +266,19 @@ class ImportController extends Controller
                     ->map(function ($meeting) use ($period) {
                         $section = $meeting->section;
                         $subject = $section?->subject;
-                        $lecturers = $section?->lecturers?->pluck('name')->filter()->join(', ');
+                        $lecturer = $meeting->displayLecturerName();
                         $room = $meeting->room?->name;
                         $isStart = (int) $meeting->start_period === (int) $period;
 
                         if (! $isStart) {
-                            return 'Tiếp tục: ' . ($section?->section_code ?? 'Lớp học phần');
+                            return 'Tiếp tục: ' . ($meeting->displaySectionCode() ?? 'Lớp học phần');
                         }
 
                         return collect([
-                            $section?->section_code,
+                            $meeting->displaySectionCode(),
                             $subject?->name,
                             'Tiết ' . $meeting->start_period . '-' . $meeting->end_period,
-                            $lecturers ? 'GV: ' . $lecturers : null,
+                            $lecturer ? 'GV: ' . $lecturer : null,
                             $room ? 'Phòng: ' . $room : null,
                         ])->filter()->join("\n");
                     })
@@ -460,6 +462,7 @@ class ImportController extends Controller
                         ]
                     );
 
+                    $lecturer = null;
                     if ($this->isValidLecturerName($lecturerName)) {
                         $lecturer = Lecturer::firstOrCreate(
                             [
@@ -502,6 +505,7 @@ class ImportController extends Controller
                             ],
                             [
                                 'room_id' => $room?->id,
+                                'lecturer_id' => $lecturer?->id,
                                 'note' => ($startDate !== '' || $endDate !== '')
                                     ? 'Thời gian học: ' . trim($startDate . ' - ' . $endDate, ' -')
                                     : null,
@@ -653,6 +657,7 @@ class ImportController extends Controller
                 );
 
                 
+                $lecturer = null;
                 if ($this->isValidLecturerName($lecturerName)) {
                     $lecturer = Lecturer::firstOrCreate(
                         [
@@ -702,6 +707,7 @@ class ImportController extends Controller
                         ],
                         [
                             'room_id' => $room?->id,
+                            'lecturer_id' => $lecturer?->id,
                         ]
                     );
                 }
@@ -1200,6 +1206,7 @@ class ImportController extends Controller
             $phone = $state['phone'] ?? '';
         }
 
+        $lecturer = null;
         if ($this->isValidLecturerName($lecturerName)) {
             $lecturer = Lecturer::firstOrCreate(
                 [
@@ -1255,6 +1262,7 @@ class ImportController extends Controller
                 ],
                 [
                     'room_id' => $room?->id,
+                    'lecturer_id' => $lecturer?->id,
                     'note' => ($startDate !== '' || $endDate !== '')
                         ? 'Thời gian học: ' . trim($startDate . ' - ' . $endDate, ' -')
                         : null,

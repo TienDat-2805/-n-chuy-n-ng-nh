@@ -16,6 +16,144 @@
     --shadow: 6px 6px 54px rgba(0, 0, 0, 0.05);
 }
 
+.lecturer-list {
+    display: grid;
+    gap: 16px;
+}
+
+.lecturer-card {
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    background: #fff;
+    padding: 18px;
+}
+
+.lecturer-card-head,
+.lecturer-subject-row,
+.readonly-lecturer-card .subject-lecturer-head {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 16px;
+}
+
+.lecturer-card-head strong,
+.lecturer-section-title {
+    display: block;
+    font-size: 18px;
+    font-weight: 800;
+    color: var(--text);
+}
+
+.lecturer-card-head span,
+.lecturer-subject-row small {
+    display: block;
+    margin-top: 4px;
+    color: var(--muted);
+    font-weight: 700;
+}
+
+.lecturer-fields,
+.lecturer-create-form {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 10px;
+    margin-top: 14px;
+}
+
+.lecturer-create-form {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    min-width: 420px;
+}
+
+.lecturer-create-form .btn {
+    grid-column: 1 / -1;
+}
+
+.lecturer-availability {
+    margin-top: 14px;
+}
+
+.lecturer-subjects {
+    margin-top: 16px;
+    border-top: 1px solid var(--line);
+    padding-top: 16px;
+}
+
+.lecturer-section-title {
+    font-size: 14px;
+    margin-bottom: 10px;
+    text-transform: uppercase;
+    color: var(--primary);
+}
+
+.lecturer-subject-row {
+    border: 1px solid #dbe6ff;
+    border-radius: 8px;
+    padding: 12px;
+    background: #f8fbff;
+}
+
+.lecturer-subject-row + .lecturer-subject-row {
+    margin-top: 10px;
+}
+
+.lecturer-schedule-chips {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin-top: 8px;
+}
+
+.lecturer-schedule-chips span {
+    border-radius: 999px;
+    background: #edf3ff;
+    color: #3867d6;
+    padding: 6px 10px;
+    font-size: 12px;
+    font-weight: 800;
+}
+
+.soft-danger-button {
+    border: 1px solid #ffc9c1;
+    background: #fff3f1;
+    color: #f03b2f;
+    border-radius: 8px;
+    padding: 9px 12px;
+    font-weight: 800;
+    cursor: pointer;
+}
+
+.soft-danger-button:hover {
+    background: #ffe7e2;
+}
+
+.compact-empty {
+    padding: 12px;
+}
+
+.readonly-lecturer-card {
+    padding: 12px;
+}
+
+.simple-subject-lecturers {
+    grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+}
+
+@media (max-width: 900px) {
+    .lecturer-fields,
+    .lecturer-create-form {
+        grid-template-columns: 1fr;
+        min-width: 0;
+    }
+
+    .lecturer-card-head,
+    .lecturer-subject-row,
+    .readonly-lecturer-card .subject-lecturer-head {
+        flex-direction: column;
+    }
+}
+
 * {
     box-sizing: border-box;
 }

@@ -24,7 +24,7 @@
                 </p>
             </div>
 
-            <form class="inline-import" action="{{ route('imports.store') }}" method="POST" enctype="multipart/form-data">
+            <form class="inline-import" action="{{ route('imports.store') }}" method="POST" enctype="multipart/form-data" data-ajax-submit data-loading-text="Đang import dữ liệu...">
                 @csrf
                 <label>
                     <span>File Excel đầu vào</span>
@@ -47,7 +47,7 @@
                 <small>Môn chưa gắn giảng viên hợp lệ</small>
             </div>
 
-            <form class="tool-card action-tool" action="{{ route('schedule.generate') }}" method="POST" data-async-schedule-form>
+            <form class="tool-card action-tool" action="{{ route('schedule.generate') }}" method="POST" data-async-schedule-form data-loading-text="Đang xếp lịch...">
                 @csrf
                 <span>Xử lý lịch</span>
                 <strong>Xếp lịch</strong>
@@ -75,14 +75,14 @@
                 </p>
             </div>
 
-            <form class="timetable-campus-filter" method="GET" action="{{ route('imports.index') }}">
+            <form class="timetable-campus-filter" method="GET" action="{{ route('imports.index') }}" data-ajax-form data-auto-submit>
                 @if($studyMode !== 'all')
                     <input type="hidden" name="study_mode" value="{{ $studyMode }}">
                 @endif
 
                 <label>
                     <span>Cơ sở</span>
-                    <select name="campus" onchange="this.form.submit()">
+                    <select name="campus">
                         <option value="all" @selected($selectedCampus === 'all')>Tất cả cơ sở</option>
                         @foreach($campuses as $value => $label)
                             <option value="{{ $value }}" @selected($selectedCampus === $value)>{{ $label }}</option>
@@ -126,13 +126,13 @@
 
                                 @if($isStart)
                                     <div class="meeting-card {{ $hasConflict ? 'conflict' : '' }}">
-                                        <div class="section-code">{{ $meeting->section?->section_code }}</div>
+                                        <div class="section-code">{{ $meeting->displaySectionCode() }}</div>
                                         <div class="subject-name">{{ $meeting->section?->subject?->name ?? 'Không rõ môn học' }}</div>
                                         <div>Tiết {{ $meeting->start_period }}-{{ $displayEndPeriod }}</div>
 
-                                        @if($meeting->section && $meeting->section->lecturers->count() > 0)
+                                        @if($meeting->displayLecturerName())
                                             <div class="lecturer">
-                                                GV: {{ $meeting->section->lecturers->pluck('name')->join(', ') }}
+                                                GV: {{ $meeting->displayLecturerName() }}
                                             </div>
                                         @endif
 
@@ -144,7 +144,7 @@
                                     </div>
                                 @else
                                     <div class="meeting-card continuing {{ $hasConflict ? 'conflict' : '' }}">
-                                        {{ $meeting->section?->section_code }} tiếp tục
+                                        {{ $meeting->displaySectionCode() }} tiếp tục
                                     </div>
                                 @endif
                             @empty
@@ -158,67 +158,3 @@
         </table>
     </section>
 @endsection
-
-@push('scripts')
-    <script>
-        document.addEventListener('DOMContentLoaded', () => {
-            const form = document.querySelector('[data-async-schedule-form]');
-
-            if (!form) {
-                return;
-            }
-
-            const button = form.querySelector('button[type="submit"]');
-            const status = form.querySelector('[data-async-status]');
-
-            form.addEventListener('submit', async (event) => {
-                event.preventDefault();
-
-                if (button) {
-                    button.disabled = true;
-                    button.textContent = 'Đang xếp lịch...';
-                }
-
-                if (status) {
-                    status.textContent = 'Đang xếp lịch...';
-                    status.dataset.state = 'saving';
-                }
-
-                try {
-                    const response = await fetch(form.action, {
-                        method: 'POST',
-                        body: new FormData(form),
-                        headers: {
-                            'Accept': 'application/json',
-                            'X-Requested-With': 'XMLHttpRequest',
-                        },
-                    });
-                    const data = await response.json().catch(() => ({}));
-
-                    if (!response.ok) {
-                        throw new Error(data.message || 'Không thể tạo thời khóa biểu.');
-                    }
-
-                    if (status) {
-                        status.textContent = data.message || 'Đã tạo thời khóa biểu.';
-                        status.dataset.state = data.ok ? 'saved' : 'warning';
-                    }
-
-                    window.setTimeout(() => {
-                        window.location.reload();
-                    }, 1200);
-                } catch (error) {
-                    if (status) {
-                        status.textContent = error.message || 'Không thể tạo thời khóa biểu.';
-                        status.dataset.state = 'error';
-                    }
-
-                    if (button) {
-                        button.disabled = false;
-                        button.textContent = 'Tạo thời khóa biểu';
-                    }
-                }
-            });
-        });
-    </script>
-@endpush

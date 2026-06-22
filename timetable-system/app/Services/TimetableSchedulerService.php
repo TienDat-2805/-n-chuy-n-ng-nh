@@ -21,14 +21,14 @@ class TimetableSchedulerService
 
     public function generate(): array
     {
-        $sections = $this->sectionsForScheduling();
+        $tasks = $this->tasksForScheduling();
         $rooms = $this->schedulableRooms();
 
         if ($rooms->isEmpty()) {
             return [
-                'total' => $sections->count(),
+                'total' => $tasks->count(),
                 'scheduled' => 0,
-                'unscheduled' => $sections->count(),
+                'unscheduled' => $tasks->count(),
                 'reasons' => ['Chưa có phòng học hợp lệ để xếp lịch.'],
             ];
         }
@@ -39,39 +39,42 @@ class TimetableSchedulerService
         $roomBusy = [];
         $lecturerBusy = [];
         $roomLoads = [];
+        $lecturerLoads = [];
         $dayLoads = [];
         $slotLoads = [];
         $periodLoads = [];
         $scheduled = 0;
         $reasons = [];
 
-        DB::transaction(function () use ($sections, $rooms, &$roomBusy, &$lecturerBusy, &$roomLoads, &$dayLoads, &$slotLoads, &$periodLoads, &$scheduled, &$reasons) {
-            foreach ($sections as $section) {
-                $lecturers = $section->lecturers->values();
+        DB::transaction(function () use ($tasks, $rooms, &$roomBusy, &$lecturerBusy, &$roomLoads, &$lecturerLoads, &$dayLoads, &$slotLoads, &$periodLoads, &$scheduled, &$reasons) {
+            foreach ($tasks as $task) {
+                /** @var Section $section */
+                $section = $task['section'];
+                $lecturer = $task['lecturer'];
 
-                if ($lecturers->isEmpty()) {
+                if (! $lecturer) {
                     $reasons[] = "{$section->section_code}: chưa có giảng viên.";
                     continue;
                 }
 
                 $duration = $this->durationFor($section);
-                $candidateSlots = $this->candidateSlots($lecturers);
+                $candidateLecturers = $this->candidateLecturers(collect([$lecturer]));
                 $placed = false;
 
-                if (empty($candidateSlots)) {
+                if ($candidateLecturers->isEmpty()) {
                     $reasons[] = "{$section->section_code}: giảng viên không có ngày/buổi phù hợp.";
                     continue;
                 }
 
                 $placement = $this->bestPlacement(
                     $section,
-                    $lecturers,
+                    $candidateLecturers,
                     $rooms,
-                    $candidateSlots,
                     $duration,
                     $roomBusy,
                     $lecturerBusy,
                     $roomLoads,
+                    $lecturerLoads,
                     $dayLoads,
                     $slotLoads,
                     $periodLoads
@@ -81,6 +84,7 @@ class TimetableSchedulerService
                     SectionMeeting::create([
                         'section_id' => $section->id,
                         'room_id' => $placement['room']->id,
+                        'lecturer_id' => $placement['lecturer']->id,
                         'day_of_week' => $placement['day'],
                         'start_period' => $placement['start_period'],
                         'end_period' => $placement['end_period'],
@@ -88,15 +92,13 @@ class TimetableSchedulerService
                     ]);
 
                     $this->markBusy($roomBusy, 'room:' . $placement['room']->id, $placement['day'], $placement['start_period'], $placement['end_period']);
-
-                    foreach ($lecturers as $lecturer) {
-                        $this->markBusy($lecturerBusy, 'lecturer:' . $lecturer->id, $placement['day'], $placement['start_period'], $placement['end_period']);
-                    }
+                    $this->markBusy($lecturerBusy, 'lecturer:' . $placement['lecturer']->id, $placement['day'], $placement['start_period'], $placement['end_period']);
 
                     $slotKey = $placement['day'] . '_' . $placement['session'];
                     $periodKey = $placement['day'] . '_' . $placement['start_period'];
 
                     $roomLoads[$placement['room']->id] = ($roomLoads[$placement['room']->id] ?? 0) + 1;
+                    $lecturerLoads[$placement['lecturer']->id] = ($lecturerLoads[$placement['lecturer']->id] ?? 0) + 1;
                     $dayLoads[$placement['day']] = ($dayLoads[$placement['day']] ?? 0) + 1;
                     $slotLoads[$slotKey] = ($slotLoads[$slotKey] ?? 0) + 1;
                     $periodLoads[$periodKey] = ($periodLoads[$periodKey] ?? 0) + 1;
@@ -112,9 +114,9 @@ class TimetableSchedulerService
         });
 
         return [
-            'total' => $sections->count(),
+            'total' => $tasks->count(),
             'scheduled' => $scheduled,
-            'unscheduled' => max(0, $sections->count() - $scheduled),
+            'unscheduled' => max(0, $tasks->count() - $scheduled),
             'reasons' => array_slice($reasons, 0, 10),
         ];
     }
@@ -130,6 +132,54 @@ class TimetableSchedulerService
             ->values();
     }
 
+    private function tasksForScheduling(): Collection
+    {
+        return $this->sectionsForScheduling()
+            ->flatMap(function (Section $section) {
+                $lecturers = $section->lecturers
+                    ->unique('id')
+                    ->sortBy(fn ($lecturer) => mb_strtolower($lecturer->name, 'UTF-8') . '#' . $lecturer->id)
+                    ->values();
+
+                if ($lecturers->isEmpty()) {
+                    return [[
+                        'section' => $section,
+                        'lecturer' => null,
+                    ]];
+                }
+
+                return $lecturers->map(fn ($lecturer) => [
+                    'section' => $section,
+                    'lecturer' => $lecturer,
+                ]);
+            })
+            ->sort(function (array $a, array $b) {
+                return $this->comparePriority($this->taskPriority($a), $this->taskPriority($b));
+            })
+            ->values();
+    }
+
+    private function taskPriority(array $task): array
+    {
+        /** @var Section $section */
+        $section = $task['section'];
+        $lecturer = $task['lecturer'];
+
+        if (! $lecturer) {
+            return [1, 99, 0, $section->section_code, ''];
+        }
+
+        $candidateCount = count($this->lecturerCandidateSlots($lecturer));
+
+        return [
+            $candidateCount === 0 ? 1 : 0,
+            $candidateCount > 0 ? $candidateCount : 99,
+            $lecturer->availability_mode === 'limited' ? -1 : 0,
+            $section->section_code,
+            $lecturer->name,
+        ];
+    }
+
     private function sectionPriority(Section $section): array
     {
         $lecturers = $section->lecturers;
@@ -139,7 +189,10 @@ class TimetableSchedulerService
             return [1, 99, 0, 0, $section->section_code];
         }
 
-        $candidateCount = count($this->candidateSlots($lecturers));
+        $candidateCounts = $lecturers
+            ->map(fn ($lecturer) => count($this->lecturerCandidateSlots($lecturer)))
+            ->filter(fn ($count) => $count > 0);
+        $candidateCount = $candidateCounts->min() ?? 0;
         $limitedCount = $lecturers->where('availability_mode', 'limited')->count();
 
         return [
@@ -149,6 +202,13 @@ class TimetableSchedulerService
             -$lecturerCount,
             $section->section_code,
         ];
+    }
+
+    private function candidateLecturers(Collection $lecturers): Collection
+    {
+        return $lecturers
+            ->filter(fn ($lecturer) => ! empty($this->lecturerCandidateSlots($lecturer)))
+            ->values();
     }
 
     private function schedulableRooms(): Collection
@@ -243,11 +303,11 @@ class TimetableSchedulerService
         Section $section,
         Collection $lecturers,
         Collection $rooms,
-        array $candidateSlots,
         int $duration,
         array $roomBusy,
         array $lecturerBusy,
         array $roomLoads,
+        array $lecturerLoads,
         array $dayLoads,
         array $slotLoads,
         array $periodLoads
@@ -259,40 +319,45 @@ class TimetableSchedulerService
             return null;
         }
 
-        foreach ($candidateSlots as $slot) {
-            [$day, $session] = explode('_', $slot);
-            $day = (int) $day;
+        foreach ($lecturers as $lecturer) {
+            foreach ($this->sortSlots($this->lecturerCandidateSlots($lecturer)) as $slot) {
+                [$day, $session] = explode('_', $slot);
+                $day = (int) $day;
 
-            foreach ($this->startPeriods($session, $duration) as $startPeriod) {
-                $endPeriod = $startPeriod + $duration - 1;
+                foreach ($this->startPeriods($session, $duration) as $startPeriod) {
+                    $endPeriod = $startPeriod + $duration - 1;
 
-                if (! $this->areLecturersFree($lecturerBusy, $lecturers, $day, $startPeriod, $endPeriod)) {
-                    continue;
-                }
-
-                foreach ($availableRooms as $room) {
-                    if (! $this->isRoomFree($roomBusy, $room->id, $day, $startPeriod, $endPeriod)) {
+                    if (! $this->isFree($lecturerBusy, 'lecturer:' . $lecturer->id, $day, $startPeriod, $endPeriod)) {
                         continue;
                     }
 
-                    $candidates[] = [
-                        'score' => $this->placementScore(
-                            $section,
-                            $room,
-                            $day,
-                            $session,
-                            $startPeriod,
-                            $dayLoads,
-                            $slotLoads,
-                            $periodLoads,
-                            $roomLoads
-                        ),
-                        'room' => $room,
-                        'day' => $day,
-                        'session' => $session,
-                        'start_period' => $startPeriod,
-                        'end_period' => $endPeriod,
-                    ];
+                    foreach ($availableRooms as $room) {
+                        if (! $this->isRoomFree($roomBusy, $room->id, $day, $startPeriod, $endPeriod)) {
+                            continue;
+                        }
+
+                        $candidates[] = [
+                            'score' => $this->placementScore(
+                                $section,
+                                $room,
+                                $lecturer,
+                                $day,
+                                $session,
+                                $startPeriod,
+                                $dayLoads,
+                                $slotLoads,
+                                $periodLoads,
+                                $roomLoads,
+                                $lecturerLoads
+                            ),
+                            'room' => $room,
+                            'lecturer' => $lecturer,
+                            'day' => $day,
+                            'session' => $session,
+                            'start_period' => $startPeriod,
+                            'end_period' => $endPeriod,
+                        ];
+                    }
                 }
             }
         }
@@ -319,13 +384,15 @@ class TimetableSchedulerService
     private function placementScore(
         Section $section,
         Room $room,
+        $lecturer,
         int $day,
         string $session,
         int $startPeriod,
         array $dayLoads,
         array $slotLoads,
         array $periodLoads,
-        array $roomLoads
+        array $roomLoads,
+        array $lecturerLoads
     ): int {
         $slotKey = "{$day}_{$session}";
         $periodKey = "{$day}_{$startPeriod}";
@@ -333,6 +400,7 @@ class TimetableSchedulerService
         return (($dayLoads[$day] ?? 0) * 1000)
             + (($slotLoads[$slotKey] ?? 0) * 260)
             + (($periodLoads[$periodKey] ?? 0) * 80)
+            + (($lecturerLoads[$lecturer->id] ?? 0) * 70)
             + (($roomLoads[$room->id] ?? 0) * 14)
             + ($this->roomTypePenalty($room, $this->preferredRoomType($section)) * 40)
             + $this->dayPenalty($day)

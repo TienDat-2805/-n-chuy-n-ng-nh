@@ -32,12 +32,14 @@ Route::middleware('auth')->group(function () {
 
     Route::get('/subjects', [SubjectController::class, 'index'])->name('subjects.index');
     Route::post('/subjects/{subject}/lecturers', [SubjectController::class, 'attachLecturer'])->name('subjects.lecturers.attach');
+    Route::delete('/subjects/{subject}/lecturers/{lecturer}', [SubjectController::class, 'detachLecturer'])->name('subjects.lecturers.detach');
     Route::patch('/subjects/lecturers/{lecturer}/availability', [SubjectController::class, 'updateLecturerAvailability'])->name('subjects.lecturers.availability');
 
     Route::get('/lecturers', [LecturerController::class, 'index'])->name('lecturers.index');
     Route::post('/lecturers', [LecturerController::class, 'store'])->name('lecturers.store');
     Route::put('/lecturers/{lecturer}', [LecturerController::class, 'update'])->name('lecturers.update');
     Route::delete('/lecturers/{lecturer}', [LecturerController::class, 'destroy'])->name('lecturers.destroy');
+    Route::delete('/lecturers/{lecturer}/subjects/{subject}', [LecturerController::class, 'detachSubject'])->name('lecturers.subjects.detach');
 
     Route::get('/rooms', [RoomController::class, 'index'])->name('rooms.index');
     Route::post('/rooms', [RoomController::class, 'store'])->name('rooms.store');

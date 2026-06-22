@@ -13,10 +13,10 @@ class ScheduleController extends Controller
         $result = $scheduler->generate();
         $conflicts = $conflictService->detect();
 
-        $message = "Đã xếp {$result['scheduled']}/{$result['total']} môn học.";
+        $message = "Đã xếp {$result['scheduled']}/{$result['total']} lớp học.";
 
         if ($result['unscheduled'] > 0) {
-            $message .= " Còn {$result['unscheduled']} môn chưa xếp được do thiếu giảng viên, phòng hoặc khung giờ phù hợp.";
+            $message .= " Còn {$result['unscheduled']} lớp chưa xếp được do thiếu giảng viên, phòng hoặc khung giờ phù hợp.";
 
             if (! empty($result['reasons'])) {
                 $message .= ' Lý do mẫu: ' . implode(' ', array_slice($result['reasons'], 0, 3));

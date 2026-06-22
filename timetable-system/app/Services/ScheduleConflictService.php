@@ -23,8 +23,10 @@ class ScheduleConflictService
         $this->availabilityMeetings = null;
 
         $meetings = SectionMeeting::query()
-            ->with(['section.subject', 'section.lecturers', 'room'])
-            ->whereHas('section.lecturers')
+            ->with(['section.subject', 'section.lecturers', 'lecturer', 'room'])
+            ->where(function ($query) {
+                $query->whereNotNull('lecturer_id')->orWhereHas('section.lecturers');
+            })
             ->whereNotNull('day_of_week')
             ->whereNotNull('start_period')
             ->whereNotNull('end_period')
@@ -95,8 +97,10 @@ class ScheduleConflictService
         $this->availabilityMeetings = null;
 
         $meetings = SectionMeeting::query()
-            ->with(['section.subject', 'section.lecturers', 'room'])
-            ->whereHas('section.lecturers')
+            ->with(['section.subject', 'section.lecturers', 'lecturer', 'room'])
+            ->where(function ($query) {
+                $query->whereNotNull('lecturer_id')->orWhereHas('section.lecturers');
+            })
             ->whereNotNull('day_of_week')
             ->whereNotNull('start_period')
             ->whereNotNull('end_period')
@@ -224,7 +228,7 @@ class ScheduleConflictService
         $groups = [];
 
         foreach ($meetings as $meeting) {
-            $meeting->loadMissing(['section.lecturers', 'room']);
+            $meeting->loadMissing(['section.lecturers', 'lecturer', 'room']);
             $campus = $this->campusForMeeting($meeting);
 
             if (! $campus) {
@@ -233,7 +237,7 @@ class ScheduleConflictService
 
             $day = (int) $meeting->day_of_week;
 
-            foreach ($meeting->section?->lecturers ?? collect() as $lecturer) {
+            foreach ($this->lecturersForMeeting($meeting) as $lecturer) {
                 $groups[$lecturer->id][$day][$campus] ??= [
                     'lecturer' => $lecturer,
                     'meeting' => $meeting,
@@ -281,7 +285,7 @@ class ScheduleConflictService
             return [];
         }
 
-        $meeting->loadMissing(['section.lecturers', 'room']);
+        $meeting->loadMissing(['section.lecturers', 'lecturer', 'room']);
 
         $duration = $meeting->end_period - $meeting->start_period + 1;
         if ($duration <= 0 || $duration > self::MAX_PERIOD_PER_DAY) {
@@ -340,8 +344,8 @@ class ScheduleConflictService
             return [];
         }
 
-        $meeting->loadMissing(['section.subject', 'section.lecturers', 'room']);
-        $other?->loadMissing(['section.lecturers', 'room']);
+        $meeting->loadMissing(['section.subject', 'section.lecturers', 'lecturer', 'room']);
+        $other?->loadMissing(['section.lecturers', 'lecturer', 'room']);
 
         $duration = (int) $meeting->end_period - (int) $meeting->start_period + 1;
         if ($duration <= 0 || $duration > self::MAX_PERIOD_PER_DAY) {
@@ -570,7 +574,7 @@ class ScheduleConflictService
             }
 
             $conflict = ScheduleConflict::query()
-                ->with(['meeting.section.lecturers', 'meeting.room'])
+                ->with(['meeting.section.lecturers', 'meeting.lecturer', 'meeting.room'])
                 ->latest()
                 ->limit(80)
                 ->get()
@@ -601,11 +605,11 @@ class ScheduleConflictService
 
     public function isSlotAvailable(SectionMeeting $meeting, int $day, int $start, int $end, ?int $roomId = null): bool
     {
-        $meeting->loadMissing(['section.lecturers', 'room']);
-        $lecturerIds = $meeting->section?->lecturers?->pluck('id')->all() ?? [];
+        $meeting->loadMissing(['section.lecturers', 'lecturer', 'room']);
+        $lecturerIds = $this->lecturerIdsForMeeting($meeting);
         $candidateRoomId = $roomId ?: $meeting->room_id;
 
-        if (! $this->areLecturersAvailableAt($meeting->section?->lecturers ?? collect(), $day, $start, $end)) {
+        if (! $this->areLecturersAvailableAt($this->lecturersForMeeting($meeting), $day, $start, $end)) {
             return false;
         }
 
@@ -630,7 +634,7 @@ class ScheduleConflictService
                 return false;
             }
 
-            $otherLecturerIds = $other->section?->lecturers?->pluck('id')->all() ?? [];
+            $otherLecturerIds = $this->lecturerIdsForMeeting($other);
             if ($lecturerIds && array_intersect($lecturerIds, $otherLecturerIds)) {
                 return false;
             }
@@ -690,8 +694,8 @@ class ScheduleConflictService
 
     private function preferredRoomIdsForDay(SectionMeeting $meeting, string $targetCampus): array
     {
-        $meeting->loadMissing('section.lecturers');
-        $lecturerIds = $meeting->section?->lecturers?->pluck('id')->all() ?? [];
+        $meeting->loadMissing(['section.lecturers', 'lecturer']);
+        $lecturerIds = $this->lecturerIdsForMeeting($meeting);
 
         if (! $lecturerIds) {
             return [];
@@ -699,7 +703,7 @@ class ScheduleConflictService
 
         return $this->availabilityMeetings()
             ->filter(function (SectionMeeting $other) use ($meeting, $lecturerIds, $targetCampus) {
-                $otherLecturerIds = $other->section?->lecturers?->pluck('id')->all() ?? [];
+                $otherLecturerIds = $this->lecturerIdsForMeeting($other);
 
                 return $other->id !== $meeting->id
                     && (int) $other->day_of_week === (int) $meeting->day_of_week
@@ -748,8 +752,8 @@ class ScheduleConflictService
             return true;
         }
 
-        $meeting->loadMissing('section.lecturers');
-        $lecturerIds = $meeting->section?->lecturers?->pluck('id')->all() ?? [];
+        $meeting->loadMissing(['section.lecturers', 'lecturer']);
+        $lecturerIds = $this->lecturerIdsForMeeting($meeting);
 
         if (! $lecturerIds) {
             return true;
@@ -760,7 +764,7 @@ class ScheduleConflictService
                 continue;
             }
 
-            $otherLecturerIds = $other->section?->lecturers?->pluck('id')->all() ?? [];
+            $otherLecturerIds = $this->lecturerIdsForMeeting($other);
             if (! array_intersect($lecturerIds, $otherLecturerIds)) {
                 continue;
             }
@@ -786,10 +790,10 @@ class ScheduleConflictService
 
     private function lecturerAvailabilityMessages(SectionMeeting $meeting): array
     {
-        $meeting->loadMissing('section.lecturers');
+        $meeting->loadMissing(['section.lecturers', 'lecturer']);
         $messages = [];
 
-        foreach ($meeting->section?->lecturers ?? collect() as $lecturer) {
+        foreach ($this->lecturersForMeeting($meeting) as $lecturer) {
             if ($this->isLecturerAvailableAt($lecturer, (int) $meeting->day_of_week, (int) $meeting->start_period, (int) $meeting->end_period)) {
                 continue;
             }
@@ -910,8 +914,10 @@ class ScheduleConflictService
     {
         if ($this->availabilityMeetings === null) {
             $this->availabilityMeetings = SectionMeeting::query()
-                ->with(['section.lecturers', 'room'])
-                ->whereHas('section.lecturers')
+                ->with(['section.lecturers', 'lecturer', 'room'])
+                ->where(function ($query) {
+                    $query->whereNotNull('lecturer_id')->orWhereHas('section.lecturers');
+                })
                 ->whereNotNull('day_of_week')
                 ->whereNotNull('start_period')
                 ->whereNotNull('end_period')
@@ -973,10 +979,27 @@ class ScheduleConflictService
 
     private function hasSameLecturer(SectionMeeting $a, SectionMeeting $b): bool
     {
-        $lecturerIdsA = $a->section->lecturers->pluck('id')->toArray();
-        $lecturerIdsB = $b->section->lecturers->pluck('id')->toArray();
+        $lecturerIdsA = $this->lecturerIdsForMeeting($a);
+        $lecturerIdsB = $this->lecturerIdsForMeeting($b);
 
         return count(array_intersect($lecturerIdsA, $lecturerIdsB)) > 0;
+    }
+
+    private function lecturersForMeeting(SectionMeeting $meeting): Collection
+    {
+        $meeting->loadMissing(['lecturer', 'section.lecturers']);
+        $lecturer = $meeting->displayLecturer();
+
+        return $lecturer ? collect([$lecturer]) : collect();
+    }
+
+    private function lecturerIdsForMeeting(SectionMeeting $meeting): array
+    {
+        return $this->lecturersForMeeting($meeting)
+            ->pluck('id')
+            ->filter()
+            ->values()
+            ->all();
     }
 
     private function isSameCheckableRoom(SectionMeeting $a, SectionMeeting $b): bool

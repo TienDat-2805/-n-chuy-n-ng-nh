@@ -29,15 +29,17 @@
                 return '-';
             }
 
-            $code = $meeting->section?->section_code;
+            $code = $meeting->displaySectionCode();
             $subject = $meeting->section?->subject?->name;
 
             return trim(($code ? "{$code} - " : '') . ($subject ?: '-'));
         };
 
         $relevantLecturers = function ($conflict) {
-            $aLecturers = $conflict->meeting?->section?->lecturers ?? collect();
-            $bLecturers = $conflict->conflictMeeting?->section?->lecturers ?? collect();
+            $aLecturer = $conflict->meeting?->displayLecturer();
+            $bLecturer = $conflict->conflictMeeting?->displayLecturer();
+            $aLecturers = $aLecturer ? collect([$aLecturer]) : collect();
+            $bLecturers = $bLecturer ? collect([$bLecturer]) : collect();
             $allLecturers = $aLecturers->merge($bLecturers)->unique('id')->values();
 
             $fromMessage = $allLecturers
@@ -81,12 +83,17 @@
 
             return [
                 'label' => 'Lớp học phần',
-                'value' => $a?->section?->section_code ?: 'Chưa xác định',
+                'value' => $a?->displaySectionCode() ?: 'Chưa xác định',
             ];
         };
     @endphp
 
-    <section class="schedule-workspace conflict-workspace">
+    <section
+        class="schedule-workspace conflict-workspace"
+        data-conflicts-page
+        data-suggestions-url="{{ route('conflicts.suggestions') }}"
+        data-apply-url="{{ route('conflicts.apply') }}"
+    >
         <div class="import-panel">
             <div>
                 <div class="panel-kicker">Rà soát thời khóa biểu</div>
@@ -97,7 +104,7 @@
                 </p>
             </div>
 
-            <form class="inline-import" method="POST" action="{{ route('conflicts.check') }}">
+            <form class="inline-import" method="POST" action="{{ route('conflicts.check') }}" data-ajax-submit data-loading-text="Đang kiểm tra...">
                 @csrf
                 <button class="btn btn-red" type="submit">Kiểm tra lại lịch</button>
             </form>
@@ -110,6 +117,7 @@
                 <a
                     class="{{ $selectedGroup === $group ? 'active' : '' }}"
                     href="{{ route('conflicts.index', array_filter(['group' => $group, 'keyword' => $keyword ?: null])) }}"
+                    data-ajax-link
                 >
                     <span>{{ $label }}</span>
                     <strong>{{ $groupCounts->get($group, 0) }}</strong>
@@ -117,7 +125,7 @@
             @endforeach
         </div>
 
-        <form class="conflict-filter-form" method="GET" action="{{ route('conflicts.index') }}">
+        <form class="conflict-filter-form" method="GET" action="{{ route('conflicts.index') }}" data-ajax-form data-live-search data-auto-submit>
             <input type="hidden" name="group" value="{{ $selectedGroup }}">
 
             <label>
@@ -138,7 +146,7 @@
             </label>
 
             <button class="btn" type="submit">Lọc</button>
-            <a class="btn btn-gray" href="{{ route('conflicts.index') }}">Làm mới</a>
+            <a class="btn btn-gray" href="{{ route('conflicts.index') }}" data-ajax-link>Làm mới</a>
         </form>
     </section>
 
@@ -300,6 +308,10 @@
 @push('scripts')
     <script>
         document.addEventListener('DOMContentLoaded', () => {
+            if (window.TimeTableEnhanced) {
+                return;
+            }
+
             const rows = Array.from(document.querySelectorAll('[data-conflict-row]'));
 
             if (rows.length === 0) {

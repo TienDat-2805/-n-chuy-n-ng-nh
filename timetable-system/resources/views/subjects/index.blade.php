@@ -1,24 +1,23 @@
 @extends('layouts.app')
 
 @section('title', 'Danh sách môn học')
-@section('page_title', 'Danh sách môn học')
+@section('page_title', 'Môn học')
 
 @section('content')
-    <form class="filter subject-filter" method="GET" action="{{ route('subjects.index') }}">
+    <form class="filter subject-filter" method="GET" action="{{ route('subjects.index') }}" data-ajax-form data-live-search>
         <input
             type="text"
             name="keyword"
             value="{{ $keyword }}"
-            placeholder="Tìm theo mã môn học hoặc tên môn học..."
+            placeholder="Tìm theo mã môn, tên môn hoặc tên giảng viên..."
         >
 
         <button class="btn" type="submit">Tìm kiếm</button>
-        <a class="btn btn-gray" href="{{ route('subjects.index') }}">Làm mới</a>
+        <a class="btn btn-gray" href="{{ route('subjects.index') }}" data-ajax-link>Làm mới</a>
     </form>
 
     <div class="note">
-        Mặc định giảng viên ở chế độ linh hoạt, nghĩa là hệ thống có thể xếp vào bất kỳ ngày/buổi nào còn trống.
-        Chỉ chuyển sang chế độ giới hạn khi giảng viên chỉ dạy được một số ngày hoặc buổi cụ thể.
+        Trang này dùng để kiểm tra môn học và gắn giảng viên từ danh sách đã có. Lịch có thể dạy của giảng viên được chỉnh tại trang Giảng viên.
     </div>
 
     <div class="subject-list">
@@ -34,6 +33,8 @@
                     ->flatMap(fn ($section) => $section->meetings)
                     ->sortBy([['day_of_week', 'asc'], ['start_period', 'asc']])
                     ->values();
+
+                $attachedLecturerIds = $subjectLecturers->pluck('id')->all();
             @endphp
 
             <article class="subject-card">
@@ -52,91 +53,76 @@
                 <div class="subject-schedule-summary">
                     @forelse($subjectMeetings as $meeting)
                         <span>
+                            {{ $meeting->displaySectionCode() }},
                             Thứ {{ $meeting->day_of_week }},
                             tiết {{ $meeting->start_period }}-{{ min($meeting->end_period, 12) }},
                             {{ $meeting->room?->name ?? 'chưa có phòng' }}
+                            @if($meeting->displayLecturerName())
+                                · GV: {{ $meeting->displayLecturerName() }}
+                            @endif
                         </span>
                     @empty
-                        <span>Chưa có lịch học. Hãy kiểm tra ràng buộc giảng viên rồi bấm tạo thời khóa biểu.</span>
+                        <span>Chưa có lịch học. Hãy kiểm tra danh sách giảng viên và bấm tạo thời khóa biểu.</span>
                     @endforelse
                 </div>
 
                 <details class="subject-add-lecturer" {{ $subjectLecturers->isEmpty() ? 'open' : '' }}>
-                    <summary>Thêm giảng viên cho môn học</summary>
+                    <summary>Gắn giảng viên cho môn học</summary>
 
-                    <form action="{{ route('subjects.lecturers.attach', $subject) }}" method="POST" data-async-attach-lecturer>
+                    <form action="{{ route('subjects.lecturers.attach', $subject) }}" method="POST" data-async-subject-lecturer-form>
                         @csrf
                         <input type="hidden" name="keyword" value="{{ $keyword }}">
                         <input type="hidden" name="page" value="{{ $subjects->currentPage() }}">
 
-                        <input type="text" name="name" placeholder="Tên giảng viên" required>
-                        <input type="email" name="email" placeholder="Email nếu có">
-                        <button class="btn" type="submit">Thêm giảng viên</button>
+                        <select name="lecturer_id" required>
+                            <option value="">Chọn giảng viên</option>
+                            @foreach($lecturers as $lecturer)
+                                <option value="{{ $lecturer->id }}" @disabled(in_array($lecturer->id, $attachedLecturerIds, true))>
+                                    {{ $lecturer->name }}
+                                </option>
+                            @endforeach
+                        </select>
+
+                        <button class="btn" type="submit">Gắn giảng viên</button>
                         <span class="async-form-status" data-async-status aria-live="polite"></span>
                     </form>
 
                     <small>
-                        Giảng viên mới sẽ được gắn vào các lớp học phần của môn này và mặc định ở chế độ linh hoạt.
+                        Nếu chưa có giảng viên trong danh sách, hãy thêm tại trang Giảng viên trước rồi quay lại gắn vào môn.
                     </small>
                 </details>
 
-                <div class="subject-lecturer-list">
+                <div class="subject-lecturer-list simple-subject-lecturers">
                     @forelse($subjectLecturers as $lecturer)
-                        @php
-                            $availabilityMode = $lecturer->availability_mode ?? 'unrestricted';
-                            $selectedSlots = $lecturer->available_slots ?? [];
-                        @endphp
-
-                        <form class="subject-lecturer-card" action="{{ route('subjects.lecturers.availability', $lecturer) }}" method="POST">
-                            @csrf
-                            @method('PATCH')
-                            <input type="hidden" name="keyword" value="{{ $keyword }}">
-                            <input type="hidden" name="page" value="{{ $subjects->currentPage() }}">
-
+                        <div class="subject-lecturer-card readonly-lecturer-card">
                             <div class="subject-lecturer-head">
                                 <div>
                                     <strong>{{ $lecturer->name }}</strong>
-                                    <small class="availability-summary">{{ $availabilityMode === 'limited' ? 'Giới hạn' : 'Linh hoạt' }}</small>
+                                    <small>{{ ($lecturer->availability_mode ?? 'unrestricted') === 'limited' ? 'Giới hạn lịch dạy' : 'Linh hoạt' }}</small>
                                 </div>
-                                <span class="availability-save-status" aria-live="polite"></span>
-                            </div>
 
-                            <label class="availability-mode-field">
-                                <span>Kiểu lịch</span>
-                                <select class="availability-mode-select" name="availability_mode">
-                                    <option value="unrestricted" @selected($availabilityMode !== 'limited')>
-                                        Linh hoạt
-                                    </option>
-                                    <option value="limited" @selected($availabilityMode === 'limited')>
-                                        Giới hạn
-                                    </option>
-                                </select>
-                            </label>
-
-                            <div class="compact-availability availability-limited-panel {{ $availabilityMode === 'limited' ? '' : 'is-hidden' }}">
-                                @foreach($days as $day => $dayLabel)
-                                    <div class="compact-day">
-                                        <strong>{{ $dayLabel }}</strong>
-                                        @foreach($sessions as $session => $sessionLabel)
-                                            @php
-                                                $slot = $day . '_' . $session;
-                                            @endphp
-                                            <label>
-                                                <input type="checkbox" name="available_slots[]" value="{{ $slot }}" @checked(in_array($slot, $selectedSlots, true))>
-                                                <span>{{ $sessionLabel }}</span>
-                                            </label>
-                                        @endforeach
-                                    </div>
-                                @endforeach
+                                <form
+                                    action="{{ route('subjects.lecturers.detach', [$subject, $lecturer]) }}"
+                                    method="POST"
+                                    data-async-subject-lecturer-form
+                                    data-confirm-message="Bỏ giảng viên khỏi môn học này?"
+                                >
+                                    @csrf
+                                    @method('DELETE')
+                                    <input type="hidden" name="keyword" value="{{ $keyword }}">
+                                    <input type="hidden" name="page" value="{{ $subjects->currentPage() }}">
+                                    <button type="submit" class="soft-danger-button">Bỏ khỏi môn</button>
+                                    <span class="async-form-status" data-async-status aria-live="polite"></span>
+                                </form>
                             </div>
-                        </form>
+                        </div>
                     @empty
                         <div class="empty-state">Môn học này chưa có giảng viên hợp lệ.</div>
                     @endforelse
                 </div>
             </article>
         @empty
-            <div class="empty-state">Chưa có dữ liệu môn học.</div>
+            <div class="empty-state">Chưa có dữ liệu môn học phù hợp.</div>
         @endforelse
     </div>
 
@@ -170,155 +156,4 @@
             </div>
         </div>
     @endif
-
-    <script>
-        document.querySelectorAll('[data-async-attach-lecturer]').forEach((form) => {
-            const button = form.querySelector('button[type="submit"]');
-            const status = form.querySelector('[data-async-status]');
-
-            form.addEventListener('submit', async (event) => {
-                event.preventDefault();
-
-                if (button) {
-                    button.disabled = true;
-                    button.textContent = 'Đang thêm...';
-                }
-
-                if (status) {
-                    status.textContent = 'Đang xử lý ở backend.';
-                    status.dataset.state = 'saving';
-                }
-
-                try {
-                    const response = await fetch(form.action, {
-                        method: 'POST',
-                        body: new FormData(form),
-                        headers: {
-                            'Accept': 'application/json',
-                            'X-Requested-With': 'XMLHttpRequest',
-                        },
-                    });
-                    const data = await response.json().catch(() => ({}));
-
-                    if (!response.ok || data.ok === false) {
-                        throw new Error(data.message || 'Không thể thêm giảng viên.');
-                    }
-
-                    if (status) {
-                        status.textContent = data.message || 'Đã thêm giảng viên.';
-                        status.dataset.state = 'saved';
-                    }
-
-                    window.setTimeout(() => {
-                        window.location.reload();
-                    }, 900);
-                } catch (error) {
-                    if (status) {
-                        status.textContent = error.message || 'Không thể thêm giảng viên.';
-                        status.dataset.state = 'error';
-                    }
-
-                    if (button) {
-                        button.disabled = false;
-                        button.textContent = 'Thêm giảng viên';
-                    }
-                }
-            });
-        });
-
-        document.querySelectorAll('.subject-lecturer-card').forEach((card) => {
-            const select = card.querySelector('.availability-mode-select');
-            const panel = card.querySelector('.availability-limited-panel');
-            const status = card.querySelector('.availability-save-status');
-            const summary = card.querySelector('.availability-summary');
-
-            let saveTimer = null;
-            let abortController = null;
-
-            if (!select || !panel) {
-                return;
-            }
-
-            const syncPanel = () => {
-                panel.classList.toggle('is-hidden', select.value !== 'limited');
-
-                if (summary) {
-                    summary.textContent = select.value === 'limited' ? 'Giới hạn' : 'Linh hoạt';
-                }
-            };
-
-            const setStatus = (message, state = '') => {
-                if (!status) {
-                    return;
-                }
-
-                status.textContent = message;
-                status.dataset.state = state;
-            };
-
-            const submitAvailability = () => {
-                window.clearTimeout(saveTimer);
-                setStatus('Đang lưu...', 'saving');
-
-                if (abortController) {
-                    abortController.abort();
-                }
-
-                abortController = new AbortController();
-
-                fetch(card.action, {
-                    method: 'POST',
-                    body: new FormData(card),
-                    headers: {
-                        'Accept': 'application/json',
-                        'X-Requested-With': 'XMLHttpRequest',
-                    },
-                    signal: abortController.signal,
-                })
-                    .then((response) => {
-                        if (!response.ok) {
-                            throw new Error('Không lưu được dữ liệu');
-                        }
-
-                        return response.json();
-                    })
-                    .then((data) => {
-                        const savedSlots = Array.isArray(data.available_slots) ? data.available_slots : [];
-
-                        card.querySelectorAll('input[name="available_slots[]"]').forEach((checkbox) => {
-                            checkbox.checked = savedSlots.includes(checkbox.value);
-                        });
-
-                        setStatus('Đã lưu', 'saved');
-                    })
-                    .catch((error) => {
-                        if (error.name === 'AbortError') {
-                            return;
-                        }
-
-                        setStatus('Lỗi lưu', 'error');
-                    });
-            };
-
-            const debounceSave = () => {
-                window.clearTimeout(saveTimer);
-                saveTimer = window.setTimeout(submitAvailability, 300);
-            };
-
-            select.addEventListener('change', () => {
-                syncPanel();
-                submitAvailability();
-            });
-
-            card.querySelectorAll('input[type="checkbox"]').forEach((checkbox) => {
-                checkbox.addEventListener('change', () => {
-                    if (select.value === 'limited') {
-                        debounceSave();
-                    }
-                });
-            });
-
-            syncPanel();
-        });
-    </script>
 @endsection

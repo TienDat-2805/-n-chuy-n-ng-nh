@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use App\Models\Lecturer;
 use App\Models\ScheduleConflict;
 use App\Models\SectionInstructor;
+use App\Models\SectionMeeting;
 use App\Models\Subject;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -27,7 +28,7 @@ class SubjectController extends Controller
 
     public function index(Request $request)
     {
-        $keyword = $request->query('keyword');
+        $keyword = trim((string) $request->query('keyword', ''));
         $conflicts = ScheduleConflict::query()
             ->with(['meeting.section', 'conflictMeeting.section'])
             ->latest()
@@ -63,15 +64,20 @@ class SubjectController extends Controller
         $subjects = Subject::query()
             ->withCount('sections')
             ->with(['sections' => function ($query) {
-                $query->with(['lecturers', 'meetings.room'])
+                $query
+                    ->with(['lecturers', 'meetings.room', 'meetings.lecturer'])
                     ->orderBy('section_code');
             }])
-            ->when($keyword, function ($query) use ($keyword) {
-                $query->where(function ($q) use ($keyword) {
-                    $q->where('subject_code', 'like', "%{$keyword}%")
+            ->when($keyword !== '', function ($query) use ($keyword) {
+                $query->where(function ($query) use ($keyword) {
+                    $query
+                        ->where('subject_code', 'like', "%{$keyword}%")
                         ->orWhere('name', 'like', "%{$keyword}%")
                         ->orWhereHas('sections', function ($sectionQuery) use ($keyword) {
                             $sectionQuery->where('section_code', 'like', "%{$keyword}%");
+                        })
+                        ->orWhereHas('sections.lecturers', function ($lecturerQuery) use ($keyword) {
+                            $lecturerQuery->where('name', 'like', "%{$keyword}%");
                         });
                 });
             })
@@ -81,6 +87,7 @@ class SubjectController extends Controller
 
         return view('subjects.index', [
             'subjects' => $subjects,
+            'lecturers' => Lecturer::query()->orderBy('name')->get(['id', 'name']),
             'keyword' => $keyword,
             'conflictSectionIds' => $conflictSectionIds,
             'conflictMessagesBySection' => $conflictMessagesBySection,
@@ -98,7 +105,6 @@ class SubjectController extends Controller
         ]);
 
         $mode = $data['availability_mode'];
-
         $normalizedSlots = $mode === 'limited'
             ? $this->normalizeSlots($data['available_slots'] ?? [])
             : [];
@@ -110,61 +116,36 @@ class SubjectController extends Controller
 
         if ($request->expectsJson()) {
             return response()->json([
-                'message' => 'Đã cập nhật ràng buộc lịch dạy của giảng viên.',
+                'message' => 'Đã cập nhật lịch có thể dạy của giảng viên.',
                 'availability_mode' => $mode,
                 'available_slots' => $normalizedSlots,
             ]);
         }
 
         return redirect()
-            ->route('subjects.index', $request->only('keyword', 'page'))
-            ->with('success', 'Đã cập nhật ràng buộc lịch dạy của giảng viên.');
+            ->route('lecturers.index')
+            ->with('success', 'Đã cập nhật lịch có thể dạy của giảng viên.');
     }
 
     public function attachLecturer(Request $request, Subject $subject)
     {
         $data = $request->validate([
-            'name' => ['required', 'string', 'max:255'],
-            'email' => ['nullable', 'email', 'max:255'],
+            'lecturer_id' => ['required', 'integer', 'exists:lecturers,id'],
         ]);
 
-        $name = trim(preg_replace('/\s+/', ' ', $data['name']));
-        $email = filled($data['email'] ?? null) ? mb_strtolower(trim($data['email']), 'UTF-8') : null;
-
         $subject->load('sections:id,subject_id,section_code');
+        $lecturer = Lecturer::query()->findOrFail($data['lecturer_id']);
 
         if ($subject->sections->isEmpty()) {
-            if ($request->expectsJson()) {
-                return response()->json([
-                    'ok' => false,
-                    'message' => 'Môn học này chưa có lớp học phần nên chưa thể gắn giảng viên.',
-                ], 422);
-            }
-
-            return redirect()
-                ->route('subjects.index', $request->only('keyword', 'page'))
-                ->with('error', 'Môn học này chưa có lớp học phần nên chưa thể gắn giảng viên.');
+            return $this->subjectActionError(
+                $request,
+                'Môn học này chưa có lớp học phần nên chưa thể gắn giảng viên.'
+            );
         }
 
         $attached = 0;
 
-        DB::transaction(function () use ($name, $email, $subject, &$attached) {
-            $lecturer = Lecturer::query()
-                ->where('name', $name)
-                ->when($email, fn ($query) => $query->orWhere('email', $email))
-                ->first();
-
-            if (! $lecturer) {
-                $lecturer = Lecturer::create([
-                    'name' => $name,
-                    'email' => $email,
-                    'availability_mode' => 'unrestricted',
-                    'available_slots' => [],
-                ]);
-            } elseif ($email && blank($lecturer->email)) {
-                $lecturer->update(['email' => $email]);
-            }
-
+        DB::transaction(function () use ($lecturer, $subject, &$attached) {
             foreach ($subject->sections as $section) {
                 $link = SectionInstructor::firstOrCreate(
                     [
@@ -183,8 +164,8 @@ class SubjectController extends Controller
         });
 
         $message = $attached > 0
-            ? "Đã gắn giảng viên {$name} vào {$attached} lớp học phần của môn {$subject->subject_code}."
-            : "Giảng viên {$name} đã có trong môn {$subject->subject_code}.";
+            ? "Đã gắn {$lecturer->name} vào môn {$subject->subject_code}."
+            : "{$lecturer->name} đã có trong môn {$subject->subject_code}.";
 
         if ($request->expectsJson()) {
             return response()->json([
@@ -197,6 +178,50 @@ class SubjectController extends Controller
         return redirect()
             ->route('subjects.index', $request->only('keyword', 'page'))
             ->with('success', $message);
+    }
+
+    public function detachLecturer(Request $request, Subject $subject, Lecturer $lecturer)
+    {
+        $sectionIds = $subject->sections()->pluck('id');
+
+        DB::transaction(function () use ($sectionIds, $lecturer) {
+            SectionInstructor::query()
+                ->whereIn('section_id', $sectionIds)
+                ->where('lecturer_id', $lecturer->id)
+                ->delete();
+
+            SectionMeeting::query()
+                ->whereIn('section_id', $sectionIds)
+                ->where('lecturer_id', $lecturer->id)
+                ->update(['lecturer_id' => null]);
+        });
+
+        $message = "Đã bỏ {$lecturer->name} khỏi môn {$subject->subject_code}.";
+
+        if ($request->expectsJson()) {
+            return response()->json([
+                'ok' => true,
+                'message' => $message,
+            ]);
+        }
+
+        return redirect()
+            ->route('subjects.index', $request->only('keyword', 'page'))
+            ->with('success', $message);
+    }
+
+    private function subjectActionError(Request $request, string $message)
+    {
+        if ($request->expectsJson()) {
+            return response()->json([
+                'ok' => false,
+                'message' => $message,
+            ], 422);
+        }
+
+        return redirect()
+            ->route('subjects.index', $request->only('keyword', 'page'))
+            ->with('error', $message);
     }
 
     private function normalizeSlots(array $slots): array

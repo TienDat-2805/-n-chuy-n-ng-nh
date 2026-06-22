@@ -28,4 +28,9 @@ class Lecturer extends Model
     {
         return $this->belongsToMany(Section::class, 'section_instructors');
     }
+
+    public function meetings()
+    {
+        return $this->hasMany(SectionMeeting::class);
+    }
 }

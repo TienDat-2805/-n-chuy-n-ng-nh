@@ -4,7 +4,7 @@
 @section('page_title', 'Thời khóa biểu')
 
 @section('content')
-    <form class="filters" method="GET" action="{{ route('timetable.index') }}">
+    <form class="filters" method="GET" action="{{ route('timetable.index') }}" data-ajax-form data-auto-submit>
         <select name="section_id">
             <option value="">-- Lọc theo lớp học phần --</option>
             @foreach($sections as $section)
@@ -36,7 +36,7 @@
         </select>
 
         <button class="btn btn-green" type="submit">Lọc lịch</button>
-        <a class="btn btn-gray" href="{{ route('timetable.index') }}">Làm mới</a>
+        <a class="btn btn-gray" href="{{ route('timetable.index') }}" data-ajax-link>Làm mới</a>
     </form>
 
     <div class="summary">
@@ -73,13 +73,13 @@
 
                             @if($isStart)
                                 <div class="meeting-card {{ $hasConflict ? 'conflict' : '' }}">
-                                    <div class="section-code">{{ $meeting->section?->section_code }}</div>
+                                    <div class="section-code">{{ $meeting->displaySectionCode() }}</div>
                                     <div class="subject-name">{{ $meeting->section?->subject?->name ?? 'Không rõ học phần' }}</div>
                                     <div>Tiết {{ $meeting->start_period }}-{{ $displayEndPeriod }}</div>
 
-                                    @if($meeting->section && $meeting->section->lecturers->count() > 0)
+                                    @if($meeting->displayLecturerName())
                                         <div class="lecturer">
-                                            GV: {{ $meeting->section->lecturers->pluck('name')->join(', ') }}
+                                            GV: {{ $meeting->displayLecturerName() }}
                                         </div>
                                     @endif
 
@@ -89,7 +89,7 @@
                                 </div>
                             @else
                                 <div class="meeting-card continuing {{ $hasConflict ? 'conflict' : '' }}">
-                                    {{ $meeting->section?->section_code }} tiếp tục
+                                    {{ $meeting->displaySectionCode() }} tiếp tục
                                 </div>
                             @endif
                         @empty

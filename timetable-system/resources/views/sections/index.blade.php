@@ -4,7 +4,7 @@
 @section('page_title', 'Danh sách lớp học phần')
 
 @section('content')
-    <form class="filter" method="GET" action="{{ route('sections.index') }}">
+    <form class="filter" method="GET" action="{{ route('sections.index') }}" data-ajax-form data-live-search>
         <input
             type="text"
             name="keyword"
@@ -13,7 +13,7 @@
         >
 
         <button class="btn btn-green" type="submit">Tìm kiếm</button>
-        <a class="btn btn-gray" href="{{ route('sections.index') }}">Làm mới</a>
+        <a class="btn btn-gray" href="{{ route('sections.index') }}" data-ajax-link>Làm mới</a>
     </form>
 
     <table>

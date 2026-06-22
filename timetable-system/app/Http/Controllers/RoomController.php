@@ -36,7 +36,7 @@ class RoomController extends Controller
             ->with([
                 'meetings' => function ($query) {
                     $query
-                        ->with(['section.subject', 'section.lecturers'])
+                        ->with(['section.subject', 'section.lecturers', 'lecturer'])
                         ->orderBy('day_of_week')
                         ->orderBy('start_period');
                 },

@@ -32,6 +32,7 @@
             <a
                 class="campus-tab {{ $selectedCampus === $campus['value'] ? 'active' : '' }}"
                 href="{{ route('rooms.index', array_merge(request()->except('campus'), ['campus' => $campus['value']])) }}"
+                data-ajax-link
             >
                 <span>{{ $campus['label'] }}</span>
                 <strong>{{ $campus['count'] }}</strong>
@@ -39,7 +40,7 @@
         @endforeach
     </section>
 
-    <form class="room-filter" method="GET" action="{{ route('rooms.index') }}">
+    <form class="room-filter" method="GET" action="{{ route('rooms.index') }}" data-ajax-form data-live-search data-auto-submit>
         <input type="hidden" name="campus" value="{{ $selectedCampus }}">
         <input type="text" name="keyword" value="{{ $keyword }}" placeholder="Tìm phòng trong {{ $selectedCampusLabel }}...">
 
@@ -50,7 +51,7 @@
         </select>
 
         <button class="btn" type="submit">Lọc phòng</button>
-        <a class="btn btn-gray" href="{{ route('rooms.index', ['campus' => $selectedCampus]) }}">Làm mới</a>
+        <a class="btn btn-gray" href="{{ route('rooms.index', ['campus' => $selectedCampus]) }}" data-ajax-link>Làm mới</a>
     </form>
 
     <section class="room-resource-list">
@@ -74,13 +75,13 @@
                         <div class="room-schedule-list">
                             @foreach($room->meetings as $meeting)
                                 <div class="room-schedule-item">
-                                    <strong>{{ $meeting->section?->subject?->subject_code ?? $meeting->section?->section_code }}</strong>
+                                    <strong>{{ $meeting->displaySectionCode() }}</strong>
                                     <span>{{ $meeting->section?->subject?->name ?? 'Không rõ môn học' }}</span>
                                     <small>
                                         Thứ {{ $meeting->day_of_week }},
                                         tiết {{ $meeting->start_period }}-{{ min($meeting->end_period, 12) }}
-                                        @if($meeting->section?->lecturers?->count())
-                                            · GV: {{ $meeting->section->lecturers->pluck('name')->join(', ') }}
+                                        @if($meeting->displayLecturerName())
+                                            · GV: {{ $meeting->displayLecturerName() }}
                                         @endif
                                     </small>
                                 </div>
@@ -126,78 +127,3 @@
         @endforelse
     </section>
 @endsection
-
-@push('scripts')
-    <script>
-        document.addEventListener('DOMContentLoaded', () => {
-            document.querySelectorAll('[data-async-room-form]').forEach((form) => {
-                const button = form.querySelector('button[type="submit"]');
-                const status = form.querySelector('[data-async-status]');
-                const defaultButtonText = button ? button.textContent : '';
-
-                form.addEventListener('submit', async (event) => {
-                    event.preventDefault();
-
-                    const confirmMessage = form.dataset.confirmMessage;
-                    if (confirmMessage && !window.confirm(confirmMessage)) {
-                        return;
-                    }
-
-                    if (button) {
-                        button.disabled = true;
-                        button.textContent = 'Đang xử lý...';
-                    }
-
-                    if (status) {
-                        status.textContent = 'Đang xử lý ở backend.';
-                        status.dataset.state = 'saving';
-                    }
-
-                    try {
-                        const response = await fetch(form.action, {
-                            method: 'POST',
-                            body: new FormData(form),
-                            headers: {
-                                'Accept': 'application/json',
-                                'X-Requested-With': 'XMLHttpRequest',
-                            },
-                        });
-                        const data = await response.json().catch(() => ({}));
-
-                        if (!response.ok || data.ok === false) {
-                            throw new Error(data.message || 'Không thể xử lý phòng học.');
-                        }
-
-                        if (status) {
-                            status.textContent = data.message || 'Đã xử lý phòng học.';
-                            status.dataset.state = 'saved';
-                        }
-
-                        window.setTimeout(() => {
-                            const url = data.campus
-                                ? new URL(window.location.href)
-                                : null;
-
-                            if (url) {
-                                url.searchParams.set('campus', data.campus);
-                                window.location.href = url.toString();
-                            } else {
-                                window.location.reload();
-                            }
-                        }, 800);
-                    } catch (error) {
-                        if (status) {
-                            status.textContent = error.message || 'Không thể xử lý phòng học.';
-                            status.dataset.state = 'error';
-                        }
-
-                        if (button) {
-                            button.disabled = false;
-                            button.textContent = defaultButtonText;
-                        }
-                    }
-                });
-            });
-        });
-    </script>
-@endpush

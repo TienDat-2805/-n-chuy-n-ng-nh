@@ -25,6 +25,7 @@ class TimetableController extends Controller
                 'section.program',
                 'section.cohort',
                 'section.lecturers',
+                'lecturer',
                 'room',
             ])
             ->whereNotNull('day_of_week')
@@ -36,8 +37,16 @@ class TimetableController extends Controller
         }
 
         if ($lecturerId) {
-            $meetingsQuery->whereHas('section.lecturers', function ($query) use ($lecturerId) {
-                $query->where('lecturers.id', $lecturerId);
+            $meetingsQuery->where(function ($query) use ($lecturerId) {
+                $query
+                    ->where('lecturer_id', $lecturerId)
+                    ->orWhere(function ($fallbackQuery) use ($lecturerId) {
+                        $fallbackQuery
+                            ->whereNull('lecturer_id')
+                            ->whereHas('section.lecturers', function ($lecturerQuery) use ($lecturerId) {
+                                $lecturerQuery->where('lecturers.id', $lecturerId);
+                            });
+                    });
             });
         }
 

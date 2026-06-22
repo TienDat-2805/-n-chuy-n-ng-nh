@@ -112,9 +112,11 @@ class ConflictController extends Controller
             ->with([
                 'meeting.section.subject',
                 'meeting.section.lecturers',
+                'meeting.lecturer',
                 'meeting.room',
                 'conflictMeeting.section.subject',
                 'conflictMeeting.section.lecturers',
+                'conflictMeeting.lecturer',
                 'conflictMeeting.room',
             ]);
 
@@ -162,12 +164,14 @@ class ConflictController extends Controller
                 ->where('message', 'like', "%{$keyword}%")
                 ->orWhereHas('meeting.section', fn ($sectionQuery) => $sectionQuery->where('section_code', 'like', "%{$keyword}%"))
                 ->orWhereHas('meeting.section.subject', fn ($subjectQuery) => $subjectQuery->where('name', 'like', "%{$keyword}%"))
+                ->orWhereHas('meeting.lecturer', fn ($lecturerQuery) => $lecturerQuery->where('name', 'like', "%{$keyword}%"))
                 ->orWhereHas('meeting.section.lecturers', fn ($lecturerQuery) => $lecturerQuery->where('name', 'like', "%{$keyword}%"))
                 ->orWhereHas('meeting.room', fn ($roomQuery) => $roomQuery
                     ->where('name', 'like', "%{$keyword}%")
                     ->orWhere('campus', 'like', "%{$keyword}%"))
                 ->orWhereHas('conflictMeeting.section', fn ($sectionQuery) => $sectionQuery->where('section_code', 'like', "%{$keyword}%"))
                 ->orWhereHas('conflictMeeting.section.subject', fn ($subjectQuery) => $subjectQuery->where('name', 'like', "%{$keyword}%"))
+                ->orWhereHas('conflictMeeting.lecturer', fn ($lecturerQuery) => $lecturerQuery->where('name', 'like', "%{$keyword}%"))
                 ->orWhereHas('conflictMeeting.section.lecturers', fn ($lecturerQuery) => $lecturerQuery->where('name', 'like', "%{$keyword}%"))
                 ->orWhereHas('conflictMeeting.room', fn ($roomQuery) => $roomQuery
                     ->where('name', 'like', "%{$keyword}%")
@@ -186,9 +190,11 @@ class ConflictController extends Controller
             ->with([
                 'meeting.section.subject',
                 'meeting.section.lecturers',
+                'meeting.lecturer',
                 'meeting.room',
                 'conflictMeeting.section.subject',
                 'conflictMeeting.section.lecturers',
+                'conflictMeeting.lecturer',
                 'conflictMeeting.room',
             ])
             ->findOrFail($data['conflict_id']);
@@ -316,7 +322,7 @@ class ConflictController extends Controller
         }
 
         $meeting->loadMissing('section.subject');
-        $code = $meeting->section?->section_code;
+        $code = $meeting->displaySectionCode();
         $subject = $meeting->section?->subject?->name;
 
         return trim(($code ? "{$code} - " : '') . ($subject ?: 'Chưa rõ môn học'));
@@ -329,7 +335,8 @@ class ConflictController extends Controller
         }
 
         $meeting->refresh();
-        $meeting->loadMissing(['section.subject', 'section.lecturers', 'room']);
+        $meeting->loadMissing(['section.subject', 'section.lecturers', 'lecturer', 'room']);
+        $lecturerName = $meeting->displayLecturerName();
 
         return [
             'id' => $meeting->id,
@@ -339,7 +346,7 @@ class ConflictController extends Controller
             'end_period' => $meeting->end_period,
             'room' => $meeting->room?->name,
             'campus' => $meeting->room?->campus,
-            'lecturers' => $meeting->section?->lecturers?->pluck('name')->filter()->values()->all() ?? [],
+            'lecturers' => $lecturerName ? [$lecturerName] : [],
         ];
     }
 
